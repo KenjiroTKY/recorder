@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import org.bouncycastle.cms.CMSSignedData
 import org.bouncycastle.tsp.TimeStampToken
-import java.security.MessageDigest
 import java.util.Date
 
 sealed class VerificationResult {
@@ -42,15 +41,8 @@ class CertificateVerifier(private val context: Context) {
     }
 
     private fun hash(uri: Uri): ByteArray {
-        val digest = MessageDigest.getInstance("SHA-256")
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            val buffer = ByteArray(64 * 1024)
-            while (true) {
-                val read = input.read(buffer)
-                if (read <= 0) break
-                digest.update(buffer, 0, read)
-            }
-        }
-        return digest.digest()
+        val input = context.contentResolver.openInputStream(uri)
+            ?: throw IllegalStateException("録音ファイルを読み込めません: $uri")
+        return Sha256.hash(input)
     }
 }

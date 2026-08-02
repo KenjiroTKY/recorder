@@ -131,8 +131,8 @@ class StereoAudioRecorder(
 
     private fun openNewPart() {
         val dir = workDir ?: return
-        val suffix = if (partIndex == 1) "" else "_part$partIndex"
-        val file = File(dir, "$baseFileName$suffix.${quality.fileExtension}")
+        val fileName = RecordingFileNaming.partFileName(baseFileName, quality.fileExtension, partIndex)
+        val file = File(dir, fileName)
         writer?.start(file.absolutePath, quality.sampleRateHz, effectiveChannelCount)
     }
 
