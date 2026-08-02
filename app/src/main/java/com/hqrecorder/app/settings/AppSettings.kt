@@ -7,5 +7,6 @@ data class AppSettings(
     val saveFolderUri: String? = null,
     val certificateEnabled: Boolean = false,
     val tsaUrl: String = "",
-    val tsaAuthHeader: String? = null
+    val tsaAuthHeader: String? = null,
+    val audioFocusPolicy: AudioFocusPolicy = AudioFocusPolicy.PAUSE
 )

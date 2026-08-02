@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.hqrecorder.app.HqRecorderApp
 import com.hqrecorder.app.audio.AudioQuality
 import com.hqrecorder.app.settings.AppSettings
+import com.hqrecorder.app.settings.AudioFocusPolicy
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -35,5 +36,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setTsaAuthHeader(header: String) {
         viewModelScope.launch { repo.updateTsaAuthHeader(header) }
+    }
+
+    fun setAudioFocusPolicy(policy: AudioFocusPolicy) {
+        viewModelScope.launch { repo.updateAudioFocusPolicy(policy) }
     }
 }
