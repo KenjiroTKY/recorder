@@ -11,6 +11,7 @@
 - minSdkVersion: 29 (Android 10)
 - targetSdkVersion: 34 (Android 14) 相当の最新API
 - スマートフォンを主対象（タブレットは副次対応）
+- **動作保証端末（最低限）**: Google Pixel 8 / Android 16 を必須の動作確認対象とする。他機種・他OSバージョンは順次対応表を拡充（8節参照）。
 
 ## 3. 機能要件
 
