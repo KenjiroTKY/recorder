@@ -29,6 +29,7 @@ import com.hqrecorder.app.settings.AudioFocusPolicy
 import com.hqrecorder.app.storage.CertificateStatus
 import com.hqrecorder.app.storage.RecordingMetadata
 import com.hqrecorder.app.storage.SafStorageManager
+import com.hqrecorder.app.time.ClockReliabilityChecker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -74,6 +75,8 @@ class RecordingService : Service(), RecorderListener {
     private var currentRecordingId: String = ""
     private val partResults = mutableListOf<AudioFileWriterResult>()
     private var startCertificateJob: Deferred<StartCertificateResult?>? = null
+
+    private var clockReliabilityJob: Deferred<ClockReliabilityChecker.CheckResult>? = null
 
     private var audioManager: AudioManager? = null
     private var audioFocusPolicy: AudioFocusPolicy = AudioFocusPolicy.PAUSE
@@ -137,6 +140,10 @@ class RecordingService : Service(), RecorderListener {
         startElapsedRealtime = SystemClock.elapsedRealtime()
         startCertificateJob = serviceScope.async(Dispatchers.IO) {
             issueStartCertificate(folderUri, currentBaseName)
+        }
+
+        clockReliabilityJob = serviceScope.async(Dispatchers.IO) {
+            (application as HqRecorderApp).container.clockReliabilityChecker.check()
         }
 
         _uiState.value = RecordingUiState(
@@ -299,11 +306,14 @@ class RecordingService : Service(), RecorderListener {
         val pendingStartCertificateJob = startCertificateJob
         serviceScope.launch {
             var current = metadata
+            val clockResult = clockReliabilityJob?.await()
             val startCert = pendingStartCertificateJob?.await()
-            if (startCert != null) {
+            if (clockResult != null || startCert != null) {
                 current = current.copy(
-                    startCertificateFileUri = startCert.fileUri,
-                    startCertificateIssuedAtEpochMs = startCert.issuedAtEpochMs
+                    clockReliability = clockResult?.reliability?.name,
+                    clockOffsetMs = clockResult?.offsetMs,
+                    startCertificateFileUri = startCert?.fileUri,
+                    startCertificateIssuedAtEpochMs = startCert?.issuedAtEpochMs
                 )
                 repo.updateRecording(current)
             }
