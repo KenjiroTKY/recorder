@@ -98,6 +98,14 @@ DataStore Preferencesに保存: 選択中の音質、保存先フォルダURI、
 ### 4.6 長時間録音時のファイル分割
 WAVヘッダのサイズフィールドは32bitのため、1パートあたり約1.8GBに達したら `StereoAudioRecorder` が現在のパートを確定し `_part2`, `_part3`… として新規パートを開始。停止時にすべてのパートをまとめて1件の `RecordingMetadata`（`durationMs`/`fileSizeBytes` は合算）として保存する。
 
+### 4.7 AudioFocus割り込み対応
+1. `RecordingService.startRecording()` で `AudioManager.requestAudioFocus()`（`STREAM_MUSIC` / `AUDIOFOCUS_GAIN`）を取得し、`OnAudioFocusChangeListener` を登録する
+2. フォーカス変化コールバックの `AudioManager` 定数（`AUDIOFOCUS_LOSS` / `AUDIOFOCUS_LOSS_TRANSIENT` / `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK` / `AUDIOFOCUS_GAIN`）を、Android非依存の `audio/AudioFocusChangeType`（`LOST_PERMANENTLY` / `LOST_TRANSIENT` / `GAINED`）へ変換する
+3. `audio/AudioFocusDecision.decide(changeType, policy, pausedByFocusLoss)` という純粋関数（ユニットテスト対象）が、ユーザー設定 `AudioFocusPolicy`（`PAUSE`/`CONTINUE`、デフォルト`PAUSE`）と現在の自動一時停止フラグから `PAUSE` / `RESUME` / `NONE` を判定する
+4. `RecordingService` は判定結果に応じて `pauseRecording()` / `resumeRecording()` を呼び、`pausedByFocusLoss` フラグを更新する。ユーザーが通知/UIから手動で一時停止した場合はこのフラグを立てないため、フォーカス再獲得時に意図せず再開されることはない
+5. `stopRecording()` / サービス破棄時に `abandonAudioFocus()` する
+6. `AudioFocusPolicy` は `SettingsRepository` 経由でDataStoreに永続化し、設定画面から変更可能。録音中の変更も次回のフォーカス変化から反映される
+
 ## 5. 設計判断・簡略化した点（MVPでの割り切り）
 
 | 項目 | 採用した設計 | 理由 |
@@ -105,7 +113,7 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 | 録音時の書き込み先 | 一時的にアプリ内部キャッシュへ書き込み、停止後にSAF宛先へコピー | SAFのUriは提供元（特にクラウド系DocumentsProvider）によってはシーク不可なストリームしか得られず、WAVヘッダの後書き（サイズ確定）ができない。ローカルの`RandomAccessFile`で確定してからコピーする方式にして信頼性を優先した。 |
 | 録音履歴の永続化 | Room DBではなくJSONファイル（kotlinx.serialization） | 件数が数千件規模になりにくいICレコーダー用途では過剰。KSP/アノテーション処理の依存を減らしビルドの堅牢性を優先。 |
 | 証明書の自動リトライ | WorkManagerではなく、一覧画面からの手動再試行 | 初期リリースではネットワーク制約付きバックグラウンドジョブの複雑さを避けた。将来WorkManagerへの置き換えは容易な構造にしている。 |
-| 通話等によるマイク割り込み処理 | 未実装（既知の制約として明記） | AudioFocus APIは主に再生用でマイク専有検知には別途PhoneStateListener等が必要となり、権限スコープが拡大する。Phase 2以降の検討事項とする。 |
+| 通話等によるマイク割り込み処理 | `AudioManager`のAudioFocusコールバックのみで検知（4.7節） | AudioFocus APIは本来再生用だが、通話アプリ等は着信/通話開始時に`AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE`相当でフォーカスを要求するため、間接的な割り込み検知の手段として利用する。`PhoneStateListener`/`READ_PHONE_STATE`によるより厳密な通話状態検知や、Bluetooth接続変化の個別ブロードキャスト受信は権限スコープ拡大・実装コストの観点からスコープ外とし、将来の拡張ポイントとする。 |
 | 24bit WAV | `AudioRecord`の`ENCODING_PCM_FLOAT`で取得しアプリ側で24bit整数へ変換。非対応機種は16bit/モノラルへ自動フォールバック | Android標準APIには24bit整数の直接指定がないため。 |
 
 ## 6. 権限とマニフェスト
@@ -129,7 +137,7 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 ## 8. 今後の拡張ポイント
 
 - WorkManagerによる証明書取得の自動バックグラウンドリトライ
-- 通話・Bluetoothルート変化時の一時停止/警告
+- `PhoneStateListener`/`READ_PHONE_STATE`による通話状態の直接検知、Bluetooth接続変化（`ACTION_ACL_CONNECTED`等）の個別ブロードキャスト受信によるAudioFocus割り込み検知の精度向上（現状はAudioFocusコールバックのみ、4.7節）
 - ノイズリダクション/AGCの明示トグル（現状は端末依存でUNPROCESSEDを優先取得するのみ）
 - タブレット/外付けマイク（USB-Audio）対応
 - 証拠性強化機能（SPEC.md 3.6）→ 詳細は9節

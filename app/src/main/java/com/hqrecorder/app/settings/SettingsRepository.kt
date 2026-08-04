@@ -25,6 +25,7 @@ class SettingsRepository(private val context: Context) {
         val CERT_ENABLED = booleanPreferencesKey("certificate_enabled")
         val TSA_URL = stringPreferencesKey("tsa_url")
         val TSA_AUTH_HEADER = stringPreferencesKey("tsa_auth_header")
+        val AUDIO_FOCUS_POLICY = stringPreferencesKey("audio_focus_policy")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -42,7 +43,10 @@ class SettingsRepository(private val context: Context) {
             saveFolderUri = prefs[Keys.SAVE_FOLDER_URI],
             certificateEnabled = prefs[Keys.CERT_ENABLED] ?: false,
             tsaUrl = prefs[Keys.TSA_URL] ?: "",
-            tsaAuthHeader = prefs[Keys.TSA_AUTH_HEADER]
+            tsaAuthHeader = prefs[Keys.TSA_AUTH_HEADER],
+            audioFocusPolicy = prefs[Keys.AUDIO_FOCUS_POLICY]?.let {
+                runCatching { AudioFocusPolicy.valueOf(it) }.getOrNull()
+            } ?: AudioFocusPolicy.PAUSE
         )
     }
 
@@ -74,5 +78,9 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { prefs ->
             if (header.isNullOrBlank()) prefs.remove(Keys.TSA_AUTH_HEADER) else prefs[Keys.TSA_AUTH_HEADER] = header
         }
+    }
+
+    suspend fun updateAudioFocusPolicy(policy: AudioFocusPolicy) {
+        context.dataStore.edit { prefs -> prefs[Keys.AUDIO_FOCUS_POLICY] = policy.name }
     }
 }

@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.hqrecorder.app.settings.AudioFocusPolicy
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,6 +73,31 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(preset.label)
+                }
+            }
+
+            item { Divider(modifier = Modifier.padding(vertical = 16.dp)) }
+
+            item { Text("通話・Bluetooth割り込み時の挙動", style = MaterialTheme.typography.titleLarge) }
+
+            items(AudioFocusPolicy.entries.toList()) { policy ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = settings.audioFocusPolicy == policy,
+                        onClick = { viewModel.setAudioFocusPolicy(policy) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        when (policy) {
+                            AudioFocusPolicy.PAUSE -> "一時停止する"
+                            AudioFocusPolicy.CONTINUE -> "継続する"
+                        }
+                    )
                 }
             }
 
