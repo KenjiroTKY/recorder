@@ -10,6 +10,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -17,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -41,6 +44,7 @@ import com.hqrecorder.app.time.ClockReliability
 fun RecordingListScreen(onBack: () -> Unit, viewModel: RecordingListViewModel = viewModel()) {
     val recordings by viewModel.recordings.collectAsState()
     val verificationResult by viewModel.verificationResult.collectAsState()
+    val playbackState by viewModel.playbackState.collectAsState()
     val deletingId by viewModel.deletingId.collectAsState()
     val deleteError by viewModel.deleteError.collectAsState()
     var pendingDelete by remember { mutableStateOf<RecordingMetadata?>(null) }
@@ -65,9 +69,18 @@ fun RecordingListScreen(onBack: () -> Unit, viewModel: RecordingListViewModel = 
             items(recordings, key = { it.id }) { recording ->
                 RecordingRow(
                     recording = recording,
+                    playbackState = playbackState,
                     isDeleting = deletingId == recording.id,
                     onRetryCertificate = { viewModel.retryCertificate(recording) },
                     onVerify = { viewModel.verify(recording) },
+                    onPlayPauseToggle = {
+                        if (playbackState.playingId == recording.id && playbackState.isPlaying) {
+                            viewModel.pause()
+                        } else {
+                            viewModel.playOrResume(recording)
+                        }
+                    },
+                    onSeek = { viewModel.seekTo(it) },
                     onDelete = { pendingDelete = recording }
                 )
                 Divider()
@@ -128,38 +141,69 @@ fun RecordingListScreen(onBack: () -> Unit, viewModel: RecordingListViewModel = 
 @Composable
 private fun RecordingRow(
     recording: RecordingMetadata,
+    playbackState: PlaybackUiState,
     isDeleting: Boolean,
     onRetryCertificate: () -> Unit,
     onVerify: () -> Unit,
+    onPlayPauseToggle: () -> Unit,
+    onSeek: (Long) -> Unit,
     onDelete: () -> Unit
 ) {
-    Row(
+    val isCurrent = playbackState.playingId == recording.id
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(16.dp)
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(recording.displayName, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                "${recording.formatType} ${recording.sampleRateHz}Hz  ${formatDuration(recording.durationMs)}  ${formatSize(recording.fileSizeBytes)}",
-                style = MaterialTheme.typography.labelSmall
-            )
-            Text(certificateStatusLabel(recording.certificateStatus), style = MaterialTheme.typography.labelSmall)
-            clockReliabilityLabel(recording.clockReliability)?.let {
-                Text(it, style = MaterialTheme.typography.labelSmall)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(recording.displayName, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "${recording.formatType} ${recording.sampleRateHz}Hz  ${formatDuration(recording.durationMs)}  ${formatSize(recording.fileSizeBytes)}",
+                    style = MaterialTheme.typography.labelSmall
+                )
+                Text(certificateStatusLabel(recording.certificateStatus), style = MaterialTheme.typography.labelSmall)
+                clockReliabilityLabel(recording.clockReliability)?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall)
+                }
+                readOnlyStatusLabel(recording.readOnlyStatus)?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall)
+                }
             }
-            readOnlyStatusLabel(recording.readOnlyStatus)?.let {
-                Text(it, style = MaterialTheme.typography.labelSmall)
+            IconButton(onClick = onPlayPauseToggle) {
+                Icon(
+                    if (isCurrent && playbackState.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (isCurrent && playbackState.isPlaying) "一時停止" else "再生"
+                )
+            }
+            when (CertificateStatus.valueOf(recording.certificateStatus)) {
+                CertificateStatus.ISSUED -> TextButton(onClick = onVerify) { Text("検証") }
+                CertificateStatus.FAILED, CertificateStatus.PENDING -> TextButton(onClick = onRetryCertificate) { Text("再試行") }
+                CertificateStatus.NONE -> Unit
+            }
+            IconButton(onClick = onDelete, enabled = !isDeleting) {
+                Icon(Icons.Filled.Delete, contentDescription = "削除")
             }
         }
-        when (CertificateStatus.valueOf(recording.certificateStatus)) {
-            CertificateStatus.ISSUED -> TextButton(onClick = onVerify) { Text("検証") }
-            CertificateStatus.FAILED, CertificateStatus.PENDING -> TextButton(onClick = onRetryCertificate) { Text("再試行") }
-            CertificateStatus.NONE -> Unit
-        }
-        IconButton(onClick = onDelete, enabled = !isDeleting) {
-            Icon(Icons.Filled.Delete, contentDescription = "削除")
+        if (isCurrent) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(formatDuration(playbackState.positionMs), style = MaterialTheme.typography.labelSmall)
+                Slider(
+                    value = playbackState.positionMs.toFloat(),
+                    valueRange = 0f..playbackState.durationMs.coerceAtLeast(1L).toFloat(),
+                    onValueChange = { onSeek(it.toLong()) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 8.dp)
+                )
+                Text(formatDuration(playbackState.durationMs), style = MaterialTheme.typography.labelSmall)
+            }
         }
     }
 }
