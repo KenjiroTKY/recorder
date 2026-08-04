@@ -10,6 +10,9 @@ import com.hqrecorder.app.audio.AudioFormatType
 import com.hqrecorder.app.audio.AudioQuality
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
@@ -26,7 +29,13 @@ class SettingsRepository(private val context: Context) {
         val TSA_URL = stringPreferencesKey("tsa_url")
         val TSA_AUTH_HEADER = stringPreferencesKey("tsa_auth_header")
         val AUDIO_FOCUS_POLICY = stringPreferencesKey("audio_focus_policy")
+        val TRUSTED_ROOT_CAS = stringPreferencesKey("trusted_root_ca_pems")
     }
+
+    private val caListSerializer = ListSerializer(String.serializer())
+    private fun decodeCaList(raw: String?): List<String> =
+        raw?.let { runCatching { Json.decodeFromString(caListSerializer, it) }.getOrNull() } ?: emptyList()
+    private fun encodeCaList(list: List<String>): String = Json.encodeToString(caListSerializer, list)
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
         val format = prefs[Keys.FORMAT]?.let { runCatching { AudioFormatType.valueOf(it) }.getOrNull() }
@@ -46,7 +55,8 @@ class SettingsRepository(private val context: Context) {
             tsaAuthHeader = prefs[Keys.TSA_AUTH_HEADER],
             audioFocusPolicy = prefs[Keys.AUDIO_FOCUS_POLICY]?.let {
                 runCatching { AudioFocusPolicy.valueOf(it) }.getOrNull()
-            } ?: AudioFocusPolicy.PAUSE
+            } ?: AudioFocusPolicy.PAUSE,
+            trustedRootCaPems = decodeCaList(prefs[Keys.TRUSTED_ROOT_CAS])
         )
     }
 
@@ -82,5 +92,21 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun updateAudioFocusPolicy(policy: AudioFocusPolicy) {
         context.dataStore.edit { prefs -> prefs[Keys.AUDIO_FOCUS_POLICY] = policy.name }
+    }
+
+    suspend fun addTrustedRootCa(pem: String) {
+        context.dataStore.edit { prefs ->
+            val current = decodeCaList(prefs[Keys.TRUSTED_ROOT_CAS])
+            if (pem !in current) {
+                prefs[Keys.TRUSTED_ROOT_CAS] = encodeCaList(current + pem)
+            }
+        }
+    }
+
+    suspend fun removeTrustedRootCa(pem: String) {
+        context.dataStore.edit { prefs ->
+            val current = decodeCaList(prefs[Keys.TRUSTED_ROOT_CAS])
+            prefs[Keys.TRUSTED_ROOT_CAS] = encodeCaList(current - pem)
+        }
     }
 }

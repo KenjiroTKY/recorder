@@ -43,8 +43,9 @@ class RecordingListViewModel(application: Application) : AndroidViewModel(applic
     fun verify(recording: RecordingMetadata) {
         val certUri = recording.certificateFileUri ?: return
         viewModelScope.launch {
+            val trustedRootCaPems = settingsRepository.settingsFlow.first().trustedRootCaPems
             val result = withContext(Dispatchers.IO) {
-                val verifyResult = verifier.verify(Uri.parse(recording.fileUri), Uri.parse(certUri))
+                val verifyResult = verifier.verify(Uri.parse(recording.fileUri), Uri.parse(certUri), trustedRootCaPems)
                 custodyLogManager.append(CustodyAction.VERIFIED, recording.id, System.currentTimeMillis())
                 verifyResult
             }

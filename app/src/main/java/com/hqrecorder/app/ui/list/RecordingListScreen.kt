@@ -73,8 +73,11 @@ fun RecordingListScreen(onBack: () -> Unit, viewModel: RecordingListViewModel = 
             title = { Text("検証結果") },
             text = {
                 when (result) {
-                    is VerificationResult.Valid ->
-                        Text("有効な証明書です。\n発行時刻: ${result.timestamp}\nTSA: ${result.tsaName ?: "不明"}")
+                    is VerificationResult.Valid -> {
+                        val chainLine = if (result.chainVerified) "信頼ルートCAへのチェーン検証: OK" else "信頼ルートCAへのチェーン検証: 未確認"
+                        val warningLine = result.chainWarning?.let { "\n$it" } ?: ""
+                        Text("有効な証明書です。\n発行時刻: ${result.timestamp}\nTSA: ${result.tsaName ?: "不明"}\n$chainLine$warningLine")
+                    }
                     is VerificationResult.Invalid ->
                         Text("検証に失敗しました: ${result.reason}")
                 }
