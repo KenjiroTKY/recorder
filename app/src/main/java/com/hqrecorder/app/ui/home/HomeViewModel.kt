@@ -37,7 +37,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startRecording() {
         val folder = settings.value.saveFolderUri?.let { Uri.parse(it) } ?: return
-        controller.startRecording(settings.value.quality, folder)
+        controller.startRecording(settings.value.quality, folder, settings.value.certificateEnabled)
     }
 
     fun pauseRecording() = controller.pause()
