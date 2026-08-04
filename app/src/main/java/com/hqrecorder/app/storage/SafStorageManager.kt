@@ -3,6 +3,7 @@ package com.hqrecorder.app.storage
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
 
@@ -44,5 +45,27 @@ object SafStorageManager {
             ?: throw IllegalStateException("証明書ファイルに書き込めませんでした")
         out.use { it.write(bytes) }
         return dest
+    }
+
+    /**
+     * 保存後の読み取り専用化(9.6)。ExternalStorageProvider経由のドキュメントに限り
+     * 実ファイルパスを解決し書き込み属性を落とす。それ以外のプロバイダは非対応として扱う。
+     */
+    fun tryMakeReadOnly(fileUri: Uri): ReadOnlyStatus {
+        val authority = fileUri.authority ?: return ReadOnlyStatus.UNSUPPORTED
+        val documentId = runCatching { DocumentsContract.getDocumentId(fileUri) }.getOrNull()
+            ?: return ReadOnlyStatus.UNSUPPORTED
+        val localPath = ReadOnlyLocker.resolveLocalPath(authority, documentId)
+            ?: return ReadOnlyStatus.UNSUPPORTED
+        return try {
+            val file = File(localPath)
+            if (file.exists() && file.setWritable(false, false)) {
+                ReadOnlyStatus.APPLIED
+            } else {
+                ReadOnlyStatus.FAILED
+            }
+        } catch (e: Exception) {
+            ReadOnlyStatus.FAILED
+        }
     }
 }
