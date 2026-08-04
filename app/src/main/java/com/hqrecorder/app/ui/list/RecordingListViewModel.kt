@@ -51,7 +51,25 @@ class RecordingListViewModel(application: Application) : AndroidViewModel(applic
         val certUri = recording.certificateFileUri ?: return
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
-                val verifyResult = verifier.verify(Uri.parse(recording.fileUri), Uri.parse(certUri))
+                val fileResult = verifier.verify(Uri.parse(recording.fileUri), Uri.parse(certUri))
+                val startCertUri = recording.startCertificateFileUri
+                var verifyResult = if (fileResult is VerificationResult.Valid && startCertUri != null) {
+                    verifier.verifyStartEndOrder(Uri.parse(startCertUri), Uri.parse(certUri))
+                } else {
+                    fileResult
+                }
+
+                val signatureUri = recording.signatureFileUri
+                val publicKeyUri = recording.publicKeyFileUri
+                if (verifyResult is VerificationResult.Valid && signatureUri != null && publicKeyUri != null) {
+                    val signatureValid = verifier.verifyDeviceSignature(
+                        Uri.parse(recording.fileUri), Uri.parse(signatureUri), Uri.parse(publicKeyUri)
+                    )
+                    if (!signatureValid) {
+                        verifyResult = VerificationResult.Invalid("端末鍵署名の検証に失敗しました（改ざんの可能性があります）")
+                    }
+                }
+
                 custodyLogManager.append(CustodyAction.VERIFIED, recording.id, System.currentTimeMillis())
                 verifyResult
             }

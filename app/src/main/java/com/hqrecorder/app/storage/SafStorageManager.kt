@@ -36,9 +36,10 @@ object SafStorageManager {
         context: Context,
         folderUri: Uri,
         sidecarName: String,
-        bytes: ByteArray
+        bytes: ByteArray,
+        mimeType: String = "application/octet-stream"
     ): Uri {
-        val dest = createFileInFolder(context, folderUri, sidecarName, "application/timestamp-reply")
+        val dest = createFileInFolder(context, folderUri, sidecarName, mimeType)
             ?: throw IllegalStateException("証明書ファイルを作成できませんでした")
         val out = context.contentResolver.openOutputStream(dest)
             ?: throw IllegalStateException("証明書ファイルに書き込めませんでした")
