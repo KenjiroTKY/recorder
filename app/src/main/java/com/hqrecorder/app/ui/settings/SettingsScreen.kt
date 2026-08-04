@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -44,6 +45,7 @@ import kotlin.math.roundToInt
 fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel()) {
     val settings by viewModel.settings.collectAsState()
     var tsaUrlField by remember(settings.tsaUrl) { mutableStateOf(settings.tsaUrl) }
+    var newCaPemField by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -176,6 +178,54 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel(
                             .fillMaxWidth()
                             .padding(top = 12.dp)
                     )
+                }
+
+                item { Divider(modifier = Modifier.padding(vertical = 16.dp)) }
+
+                item {
+                    Text("信頼ルートCA証明書(TSA証明書チェーン検証用)", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "登録すると証明書検証時にTSA署名者証明書がここに登録したルートCAへ辿れるか確認します。未登録の場合はチェーン検証を省略します。",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+
+                items(settings.trustedRootCaPems) { pem ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            pem.lineSequence().firstOrNull { it.isNotBlank() && !it.startsWith("-----") }
+                                ?.take(32)?.plus("…") ?: pem.take(32),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { viewModel.removeTrustedRootCa(pem) }) {
+                            Icon(Icons.Filled.Delete, contentDescription = "削除")
+                        }
+                    }
+                }
+
+                item {
+                    Column(modifier = Modifier.padding(top = 8.dp)) {
+                        OutlinedTextField(
+                            value = newCaPemField,
+                            onValueChange = { newCaPemField = it },
+                            label = { Text("PEM形式のCA証明書を貼り付け") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        TextButton(
+                            onClick = {
+                                viewModel.addTrustedRootCa(newCaPemField)
+                                newCaPemField = ""
+                            },
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) { Text("追加") }
+                    }
                 }
             }
         }

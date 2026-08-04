@@ -10,6 +10,7 @@ data class AppSettings(
     val tsaUrl: String = DEFAULT_TSA_URL,
     val tsaAuthHeader: String? = null,
     val audioFocusPolicy: AudioFocusPolicy = AudioFocusPolicy.PAUSE,
+    val trustedRootCaPems: List<String> = emptyList(),
     val gainDb: Float = GainProcessor.DEFAULT_GAIN_DB
 ) {
     companion object {

@@ -50,8 +50,9 @@ class RecordingListViewModel(application: Application) : AndroidViewModel(applic
     fun verify(recording: RecordingMetadata) {
         val certUri = recording.certificateFileUri ?: return
         viewModelScope.launch {
+            val trustedRootCaPems = settingsRepository.settingsFlow.first().trustedRootCaPems
             val result = withContext(Dispatchers.IO) {
-                val fileResult = verifier.verify(Uri.parse(recording.fileUri), Uri.parse(certUri))
+                val fileResult = verifier.verify(Uri.parse(recording.fileUri), Uri.parse(certUri), trustedRootCaPems)
                 val startCertUri = recording.startCertificateFileUri
                 var verifyResult = if (fileResult is VerificationResult.Valid && startCertUri != null) {
                     verifier.verifyStartEndOrder(Uri.parse(startCertUri), Uri.parse(certUri))

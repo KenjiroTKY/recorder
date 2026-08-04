@@ -42,6 +42,15 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { repo.updateAudioFocusPolicy(policy) }
     }
 
+    fun addTrustedRootCa(pem: String) {
+        if (pem.isBlank()) return
+        viewModelScope.launch { repo.addTrustedRootCa(pem) }
+    }
+
+    fun removeTrustedRootCa(pem: String) {
+        viewModelScope.launch { repo.removeTrustedRootCa(pem) }
+    }
+
     fun setGainDb(db: Float) {
         viewModelScope.launch { repo.updateGainDb(db) }
     }
