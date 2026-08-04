@@ -63,7 +63,7 @@
 
 | # | テスト内容 | レベル |
 |---|---|---|
-| 2.6.1 | 開始時刻証明と終了時刻証明の時刻が整合し、開始<終了の順序が成立すること | ユニット |
+| 2.6.1 | 開始時刻証明と終了時刻証明の時刻が整合し、開始<終了の順序が成立すること（実装済み：`StartEndTimeValidatorTest`） | ユニット |
 | 2.6.2 | 端末鍵署名がKeystore/StrongBox鍵で生成され、公開鍵で検証できること | Instrumented |
 | 2.6.3 | 区間ハッシュチェーンの一部区間のみを改ざんした場合に検知できること（実装済み：`IntervalHashChainTest`, `IntervalHashChainRecorderTest`） | ユニット |
 | 2.6.4 | Chain of Custodyログの`prevEntryHash`連結が破綻した場合（改ざん）に検知できること（実装済み：`CustodyLogChainTest`） | ユニット |

@@ -44,7 +44,13 @@ class RecordingListViewModel(application: Application) : AndroidViewModel(applic
         val certUri = recording.certificateFileUri ?: return
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
-                val verifyResult = verifier.verify(Uri.parse(recording.fileUri), Uri.parse(certUri))
+                val fileResult = verifier.verify(Uri.parse(recording.fileUri), Uri.parse(certUri))
+                val startCertUri = recording.startCertificateFileUri
+                val verifyResult = if (fileResult is VerificationResult.Valid && startCertUri != null) {
+                    verifier.verifyStartEndOrder(Uri.parse(startCertUri), Uri.parse(certUri))
+                } else {
+                    fileResult
+                }
                 custodyLogManager.append(CustodyAction.VERIFIED, recording.id, System.currentTimeMillis())
                 verifyResult
             }

@@ -20,10 +20,7 @@ class CertificateVerifier(private val context: Context) {
     fun verify(fileUri: Uri, tsrUri: Uri): VerificationResult {
         return try {
             val fileHash = hash(fileUri)
-            val tokenBytes = context.contentResolver.openInputStream(tsrUri)?.use { it.readBytes() }
-                ?: return VerificationResult.Invalid("証明書ファイルを読み込めません")
-
-            val token = TimeStampToken(CMSSignedData(tokenBytes))
+            val token = readToken(tsrUri)
             val tstInfo = token.timeStampInfo
             val expectedDigest = tstInfo.messageImprintDigest
 
@@ -38,6 +35,35 @@ class CertificateVerifier(private val context: Context) {
         } catch (e: Exception) {
             VerificationResult.Invalid("検証エラー: ${e.message}")
         }
+    }
+
+    /**
+     * 開始時刻証明(9.1)と終了時刻証明のTSA発行時刻を突き合わせ、開始<終了の順序整合性を検証する。
+     * 録音全体が「開始時刻証明〜終了時刻証明の間に生成された」ことを示す補助証跡。
+     */
+    fun verifyStartEndOrder(startTsrUri: Uri, endTsrUri: Uri): VerificationResult {
+        return try {
+            val startTime = readToken(startTsrUri).timeStampInfo.genTime
+            val endToken = readToken(endTsrUri)
+            val endTime = endToken.timeStampInfo.genTime
+
+            if (!StartEndTimeValidator.isValidOrder(startTime, endTime)) {
+                return VerificationResult.Invalid("開始時刻証明が終了時刻証明以降になっています（改ざんの可能性があります）")
+            }
+
+            VerificationResult.Valid(
+                timestamp = endTime,
+                tsaName = endToken.timeStampInfo.tsa?.toString()
+            )
+        } catch (e: Exception) {
+            VerificationResult.Invalid("開始/終了時刻証明の検証エラー: ${e.message}")
+        }
+    }
+
+    private fun readToken(tsrUri: Uri): TimeStampToken {
+        val tokenBytes = context.contentResolver.openInputStream(tsrUri)?.use { it.readBytes() }
+            ?: throw IllegalStateException("証明書ファイルを読み込めません: $tsrUri")
+        return TimeStampToken(CMSSignedData(tokenBytes))
     }
 
     private fun hash(uri: Uri): ByteArray {
