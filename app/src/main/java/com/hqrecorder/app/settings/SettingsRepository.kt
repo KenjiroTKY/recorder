@@ -3,11 +3,13 @@ package com.hqrecorder.app.settings
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.hqrecorder.app.audio.AudioFormatType
 import com.hqrecorder.app.audio.AudioQuality
+import com.hqrecorder.app.audio.GainProcessor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -26,6 +28,7 @@ class SettingsRepository(private val context: Context) {
         val TSA_URL = stringPreferencesKey("tsa_url")
         val TSA_AUTH_HEADER = stringPreferencesKey("tsa_auth_header")
         val AUDIO_FOCUS_POLICY = stringPreferencesKey("audio_focus_policy")
+        val GAIN_DB = floatPreferencesKey("gain_db")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -46,7 +49,8 @@ class SettingsRepository(private val context: Context) {
             tsaAuthHeader = prefs[Keys.TSA_AUTH_HEADER],
             audioFocusPolicy = prefs[Keys.AUDIO_FOCUS_POLICY]?.let {
                 runCatching { AudioFocusPolicy.valueOf(it) }.getOrNull()
-            } ?: AudioFocusPolicy.PAUSE
+            } ?: AudioFocusPolicy.PAUSE,
+            gainDb = prefs[Keys.GAIN_DB]?.let { GainProcessor.clampGainDb(it) } ?: GainProcessor.DEFAULT_GAIN_DB
         )
     }
 
@@ -82,5 +86,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun updateAudioFocusPolicy(policy: AudioFocusPolicy) {
         context.dataStore.edit { prefs -> prefs[Keys.AUDIO_FOCUS_POLICY] = policy.name }
+    }
+
+    suspend fun updateGainDb(db: Float) {
+        context.dataStore.edit { prefs -> prefs[Keys.GAIN_DB] = GainProcessor.clampGainDb(db) }
     }
 }

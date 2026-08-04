@@ -32,7 +32,8 @@ class CertificateManager(
                 context = context,
                 folderUri = Uri.parse(recording.folderUri),
                 sidecarName = sidecarName,
-                bytes = tokenBytes
+                bytes = tokenBytes,
+                mimeType = "application/timestamp-reply"
             )
 
             val updated = recording.copy(

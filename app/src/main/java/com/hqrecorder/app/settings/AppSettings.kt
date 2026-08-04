@@ -1,6 +1,7 @@
 package com.hqrecorder.app.settings
 
 import com.hqrecorder.app.audio.AudioQuality
+import com.hqrecorder.app.audio.GainProcessor
 
 data class AppSettings(
     val quality: AudioQuality = AudioQuality.STANDARD_WAV,
@@ -8,7 +9,8 @@ data class AppSettings(
     val certificateEnabled: Boolean = false,
     val tsaUrl: String = DEFAULT_TSA_URL,
     val tsaAuthHeader: String? = null,
-    val audioFocusPolicy: AudioFocusPolicy = AudioFocusPolicy.PAUSE
+    val audioFocusPolicy: AudioFocusPolicy = AudioFocusPolicy.PAUSE,
+    val gainDb: Float = GainProcessor.DEFAULT_GAIN_DB
 ) {
     companion object {
         // FreeTSA.org: 認証不要・無料で使えるRFC3161準拠TSA。開発・検証用のデフォルト値

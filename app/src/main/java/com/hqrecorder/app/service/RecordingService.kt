@@ -22,6 +22,8 @@ import com.hqrecorder.app.audio.RecordingState
 import com.hqrecorder.app.audio.StereoAudioRecorder
 import com.hqrecorder.app.audio.totalDurationMs
 import com.hqrecorder.app.audio.totalSizeBytes
+import com.hqrecorder.app.certificate.Sha256
+import com.hqrecorder.app.certificate.TimestampClient
 import com.hqrecorder.app.certificate.custody.CustodyAction
 import com.hqrecorder.app.settings.AudioFocusPolicy
 import com.hqrecorder.app.storage.CertificateStatus
@@ -41,8 +43,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
+import java.security.SecureRandom
 import java.util.Date
 import java.util.UUID
+
+private data class StartCertificateResult(val fileUri: String, val issuedAtEpochMs: Long)
 
 data class RecordingUiState(
     val state: RecordingState = RecordingState.IDLE,
@@ -69,6 +74,7 @@ class RecordingService : Service(), RecorderListener {
     private var currentBaseName: String = ""
     private var currentRecordingId: String = ""
     private val partResults = mutableListOf<AudioFileWriterResult>()
+    private var startCertificateJob: Deferred<StartCertificateResult?>? = null
 
     private var clockReliabilityJob: Deferred<ClockReliabilityChecker.CheckResult>? = null
 
@@ -106,7 +112,7 @@ class RecordingService : Service(), RecorderListener {
         return START_NOT_STICKY
     }
 
-    fun startRecording(quality: AudioQuality, folderUri: Uri) {
+    fun startRecording(quality: AudioQuality, folderUri: Uri, preferUnprocessed: Boolean) {
         if (_uiState.value.state == RecordingState.RECORDING) return
 
         currentQuality = quality
@@ -120,15 +126,21 @@ class RecordingService : Service(), RecorderListener {
         startForeground(NOTIFICATION_ID, notificationHelper.buildNotification(RecordingState.RECORDING, 0L))
         acquireWakeLock()
         requestAudioFocus()
+
+        val newRecorder = StereoAudioRecorder(listener = this)
+        recorder = newRecorder
         audioFocusPolicyCollectorJob = serviceScope.launch {
             val app = application as HqRecorderApp
-            app.container.settingsRepository.settingsFlow.collect { audioFocusPolicy = it.audioFocusPolicy }
+            app.container.settingsRepository.settingsFlow.collect {
+                audioFocusPolicy = it.audioFocusPolicy
+                newRecorder.setGainDb(it.gainDb)
+            }
         }
-
-        recorder = StereoAudioRecorder(listener = this).also {
-            it.start(quality, workDir = cacheWorkDir(), baseFileName = currentBaseName)
-        }
+        newRecorder.start(quality, workDir = cacheWorkDir(), baseFileName = currentBaseName, preferUnprocessed = preferUnprocessed)
         startElapsedRealtime = SystemClock.elapsedRealtime()
+        startCertificateJob = serviceScope.async(Dispatchers.IO) {
+            issueStartCertificate(folderUri, currentBaseName)
+        }
 
         clockReliabilityJob = serviceScope.async(Dispatchers.IO) {
             (application as HqRecorderApp).container.clockReliabilityChecker.check()
@@ -291,18 +303,34 @@ class RecordingService : Service(), RecorderListener {
         repo.addRecording(metadata)
         app.container.custodyLogManager.append(CustodyAction.CREATED, metadata.id, metadata.createdAtEpochMs)
 
+        val pendingStartCertificateJob = startCertificateJob
         serviceScope.launch {
             var current = metadata
             val clockResult = clockReliabilityJob?.await()
-            if (clockResult != null) {
+            val startCert = pendingStartCertificateJob?.await()
+            if (clockResult != null || startCert != null) {
                 current = current.copy(
-                    clockReliability = clockResult.reliability.name,
-                    clockOffsetMs = clockResult.offsetMs
+                    clockReliability = clockResult?.reliability?.name,
+                    clockOffsetMs = clockResult?.offsetMs,
+                    startCertificateFileUri = startCert?.fileUri,
+                    startCertificateIssuedAtEpochMs = startCert?.issuedAtEpochMs
                 )
                 repo.updateRecording(current)
             }
 
             val settings = app.container.settingsRepository.settingsFlow.first()
+
+            if (settings.certificateEnabled) {
+                val signResult = runCatching { app.container.deviceSigningManager.sign(current) }.getOrNull()
+                if (signResult != null) {
+                    current = current.copy(
+                        signatureFileUri = signResult.signatureFileUri,
+                        publicKeyFileUri = signResult.publicKeyFileUri
+                    )
+                    repo.updateRecording(current)
+                }
+            }
+
             if (settings.certificateEnabled && settings.tsaUrl.isNotBlank()) {
                 val pending = current.copy(certificateStatus = CertificateStatus.PENDING.name)
                 repo.updateRecording(pending)
@@ -313,6 +341,31 @@ class RecordingService : Service(), RecorderListener {
                 )
             }
         }
+    }
+
+    /**
+     * 録音開始直後にnonceを生成しTSAへ送信、開始時刻証明(9.1)のTSRを終了時刻証明とペアで保存する。
+     * 証明書機能が無効な場合はnullを返し、終了時刻証明のみで運用する。
+     */
+    private suspend fun issueStartCertificate(folderUri: Uri, baseName: String): StartCertificateResult? {
+        val app = application as HqRecorderApp
+        val settings = app.container.settingsRepository.settingsFlow.first()
+        if (!settings.certificateEnabled || settings.tsaUrl.isBlank()) return null
+
+        return runCatching {
+            val nonce = ByteArray(32).also { SecureRandom().nextBytes(it) }
+            val nonceHash = Sha256.hash(nonce)
+            val tokenBytes = TimestampClient(settings.tsaUrl, settings.tsaAuthHeader)
+                .requestTimestamp(nonceHash)
+            val sidecarUri = SafStorageManager.writeSidecarNextToFile(
+                context = this,
+                folderUri = folderUri,
+                sidecarName = "$baseName.start.tsr",
+                bytes = tokenBytes,
+                mimeType = "application/timestamp-reply"
+            )
+            StartCertificateResult(sidecarUri.toString(), System.currentTimeMillis())
+        }.getOrNull()
     }
 
     private fun cacheWorkDir(): File = File(cacheDir, "recording_tmp").apply { mkdirs() }

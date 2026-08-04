@@ -41,4 +41,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setAudioFocusPolicy(policy: AudioFocusPolicy) {
         viewModelScope.launch { repo.updateAudioFocusPolicy(policy) }
     }
+
+    fun setGainDb(db: Float) {
+        viewModelScope.launch { repo.updateGainDb(db) }
+    }
 }

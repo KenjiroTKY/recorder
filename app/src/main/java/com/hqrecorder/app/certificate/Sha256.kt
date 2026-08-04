@@ -20,6 +20,8 @@ object Sha256 {
         }
         return digest.digest()
     }
+
+    fun hash(bytes: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(bytes)
 }
 
 fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
