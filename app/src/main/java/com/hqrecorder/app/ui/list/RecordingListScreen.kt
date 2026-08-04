@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -22,6 +23,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -35,6 +39,9 @@ import com.hqrecorder.app.storage.RecordingMetadata
 fun RecordingListScreen(onBack: () -> Unit, viewModel: RecordingListViewModel = viewModel()) {
     val recordings by viewModel.recordings.collectAsState()
     val verificationResult by viewModel.verificationResult.collectAsState()
+    val deletingId by viewModel.deletingId.collectAsState()
+    val deleteError by viewModel.deleteError.collectAsState()
+    var pendingDelete by remember { mutableStateOf<RecordingMetadata?>(null) }
 
     Scaffold(
         topBar = {
@@ -56,8 +63,10 @@ fun RecordingListScreen(onBack: () -> Unit, viewModel: RecordingListViewModel = 
             items(recordings, key = { it.id }) { recording ->
                 RecordingRow(
                     recording = recording,
+                    isDeleting = deletingId == recording.id,
                     onRetryCertificate = { viewModel.retryCertificate(recording) },
-                    onVerify = { viewModel.verify(recording) }
+                    onVerify = { viewModel.verify(recording) },
+                    onDelete = { pendingDelete = recording }
                 )
                 Divider()
             }
@@ -81,13 +90,43 @@ fun RecordingListScreen(onBack: () -> Unit, viewModel: RecordingListViewModel = 
             }
         )
     }
+
+    pendingDelete?.let { recording ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteRecording(recording)
+                    pendingDelete = null
+                }) { Text("削除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("キャンセル") }
+            },
+            title = { Text("録音を削除しますか？") },
+            text = { Text("「${recording.displayName}」と関連する証明書ファイルを削除します。この操作は取り消せません。") }
+        )
+    }
+
+    deleteError?.let { displayName ->
+        AlertDialog(
+            onDismissRequest = { viewModel.clearDeleteError() },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearDeleteError() }) { Text("閉じる") }
+            },
+            title = { Text("削除に失敗しました") },
+            text = { Text("「$displayName」の削除中にエラーが発生しました。時間をおいて再試行してください。") }
+        )
+    }
 }
 
 @Composable
 private fun RecordingRow(
     recording: RecordingMetadata,
+    isDeleting: Boolean,
     onRetryCertificate: () -> Unit,
-    onVerify: () -> Unit
+    onVerify: () -> Unit,
+    onDelete: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -107,6 +146,9 @@ private fun RecordingRow(
             CertificateStatus.ISSUED -> TextButton(onClick = onVerify) { Text("検証") }
             CertificateStatus.FAILED, CertificateStatus.PENDING -> TextButton(onClick = onRetryCertificate) { Text("再試行") }
             CertificateStatus.NONE -> Unit
+        }
+        IconButton(onClick = onDelete, enabled = !isDeleting) {
+            Icon(Icons.Filled.Delete, contentDescription = "削除")
         }
     }
 }

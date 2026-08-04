@@ -106,6 +106,18 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 5. `stopRecording()` / サービス破棄時に `abandonAudioFocus()` する
 6. `AudioFocusPolicy` は `SettingsRepository` 経由でDataStoreに永続化し、設定画面から変更可能。録音中の変更も次回のフォーカス変化から反映される
 
+### 4.8 録音の削除
+
+1. `RecordingListScreen`の`RecordingRow`に削除アイコンボタンを追加。タップ時は`AlertDialog`で確認し、確定時のみ`RecordingListViewModel.deleteRecording(recording)`を呼ぶ
+2. `deleteRecording()`は`Dispatchers.IO`上で`SafStorageManager.deleteRecordingFiles(context, recording)`を実行する。この関数は以下のURI・ファイルをDocumentFile経由(`DocumentFile.fromSingleUri(...).delete()`)で削除する
+   - 音声本体（`fileUri`）
+   - `certificateFileUri`（存在する場合のみ）
+   - 将来実装される`startCertificateFileUri`/`signatureFileUri`/`publicKeyFileUri`（9.1/9.2実装後、`RecordingMetadata`にフィールドが追加された時点で対象に含める）
+   - 区間ハッシュチェーン（`.chain.json`）: `RecordingMetadata`はこのURIを保持していないため、`folderUri`配下を`DocumentFile.findFile("<音声ファイルのdisplayName>.chain.json")`で検索してから削除する
+3. 各ファイルの削除結果を集計し、存在したファイルすべての削除に成功した場合のみ`RecordingRepository.removeRecording(id)`でメタデータを除去し、`CustodyLogManager.append(CustodyAction.DELETED, id, now)`を記録する（9.4節、`CustodyAction`に`DELETED`を追加）
+4. 1件でも削除に失敗した場合（例: SAFプロバイダ側のエラー、9.6の読み取り専用化が将来有効な場合の書き込み拒否）はメタデータを残したまま`RecordingListViewModel`の`deleteError: StateFlow<String?>`にエラーを設定し、一覧画面にSnackbar等で表示してユーザーが再試行できるようにする
+5. 削除中は対象行にインジケータを表示し、多重タップによる二重実行を防ぐ
+
 ## 5. 設計判断・簡略化した点（MVPでの割り切り）
 
 | 項目 | 採用した設計 | 理由 |
@@ -115,6 +127,7 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 | 証明書の自動リトライ | WorkManagerではなく、一覧画面からの手動再試行 | 初期リリースではネットワーク制約付きバックグラウンドジョブの複雑さを避けた。将来WorkManagerへの置き換えは容易な構造にしている。 |
 | 通話等によるマイク割り込み処理 | `AudioManager`のAudioFocusコールバックのみで検知（4.7節） | AudioFocus APIは本来再生用だが、通話アプリ等は着信/通話開始時に`AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE`相当でフォーカスを要求するため、間接的な割り込み検知の手段として利用する。`PhoneStateListener`/`READ_PHONE_STATE`によるより厳密な通話状態検知や、Bluetooth接続変化の個別ブロードキャスト受信は権限スコープ拡大・実装コストの観点からスコープ外とし、将来の拡張ポイントとする。 |
 | 24bit WAV | `AudioRecord`の`ENCODING_PCM_FLOAT`で取得しアプリ側で24bit整数へ変換。非対応機種は16bit/モノラルへ自動フォールバック | Android標準APIには24bit整数の直接指定がないため。 |
+| 録音削除時の部分失敗 | 音声本体・サイドカーの一部でも削除に失敗したらメタデータは削除せず全体を失敗扱いにする（部分成功を許容しない） | メタデータだけ消えて実ファイルがSAF上に孤立して残る状態（"孤児ファイル"）を避け、ユーザーが一覧から再試行できるようにするため。 |
 
 ## 6. 権限とマニフェスト
 
@@ -141,6 +154,7 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 - ノイズリダクション/AGCの明示トグル（現状は端末依存でUNPROCESSEDを優先取得するのみ）
 - タブレット/外付けマイク（USB-Audio）対応
 - 証拠性強化機能（SPEC.md 3.6）→ 詳細は9節
+- 読み取り専用化（9.6、issue #10）実装後、削除操作が書き込み拒否で失敗するケースの扱い見直し（読み取り専用解除の可否確認、不可時のユーザー案内文言の整備）
 
 ## 9. Phase 3設計方針: 証拠性強化機能（SPEC.md 3.6対応）
 
@@ -158,7 +172,7 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 WAVはヘッダのサイズフィールドを`stop()`時に書き戻すため、ヘッダ領域を区間ハッシュの対象に含めると「ヘッダ確定」自体が誤検知の原因になる。これを避けるため、`openNewPart()`で`writer.start()`直後（まだ音声データを書き込む前）のオフセットを起点とし、ヘッダ領域はチェーンの対象外とする。
 
 ### 9.4 Chain of Custodyログ（実装済み）
-録音メタデータとは別に`custody_log.jsonl`（追記専用JSON Lines、app内部ストレージ）を導入（`certificate/custody/CustodyLogManager`）。各エントリは `{ timestampEpochMs, action, actor, targetRecordingId, prevEntryHash, entryHash }` を持ち、`entryHash`は自分以外の全フィールド+`prevEntryHash`のSHA-256とすることで改ざん時に連鎖が破綻し検知できるようにする（連結・検証ロジックは`certificate/custody/CustodyLogChain`として純粋関数に分離しユニットテスト対象）。`action`は `CREATED / COPIED / SHARED / VERIFIED / EXPORTED` の5種を定義し、現状は録音確定時（`RecordingService.finalizeRecording()`）に`CREATED`、証明書検証時（`RecordingListViewModel.verify()`）に`VERIFIED`を記録する。`COPIED/SHARED/EXPORTED`は共有・エクスポート機能実装時に追加する。`actor`は現状は端末のInstallation ID相当（Firebase等は使わず自前でUUID生成しSharedPreferencesに保持）のみで、マルチユーザー識別は将来検討。
+録音メタデータとは別に`custody_log.jsonl`（追記専用JSON Lines、app内部ストレージ）を導入（`certificate/custody/CustodyLogManager`）。各エントリは `{ timestampEpochMs, action, actor, targetRecordingId, prevEntryHash, entryHash }` を持ち、`entryHash`は自分以外の全フィールド+`prevEntryHash`のSHA-256とすることで改ざん時に連鎖が破綻し検知できるようにする（連結・検証ロジックは`certificate/custody/CustodyLogChain`として純粋関数に分離しユニットテスト対象）。`action`は `CREATED / COPIED / SHARED / VERIFIED / EXPORTED / DELETED` の6種を定義し、現状は録音確定時（`RecordingService.finalizeRecording()`）に`CREATED`、証明書検証時（`RecordingListViewModel.verify()`）に`VERIFIED`、個別削除成功時（`RecordingListViewModel.deleteRecording()`、4.8節）に`DELETED`を記録する。`COPIED/SHARED/EXPORTED`は共有・エクスポート機能実装時に追加する。`actor`は現状は端末のInstallation ID相当（Firebase等は使わず自前でUUID生成しSharedPreferencesに保持）のみで、マルチユーザー識別は将来検討。
 
 ### 9.5 TSA発行者証明書チェーンの検証
 `CertificateVerifier.verify()`を拡張し、`TimeStampToken.getTimeStampInfo()`の照合に加えて、`SignerInformationVerifier`（Bouncy Castle）でTSA署名証明書の署名検証・有効期限・失効情報（CRL/OCSP、対応TSAが提供する場合）を確認する。信頼するルートCA証明書はアプリ内にプリセット同梱＋設定画面でユーザー追加可能とする。
