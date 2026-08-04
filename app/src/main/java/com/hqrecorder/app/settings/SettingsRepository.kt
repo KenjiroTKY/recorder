@@ -42,7 +42,7 @@ class SettingsRepository(private val context: Context) {
             quality = quality,
             saveFolderUri = prefs[Keys.SAVE_FOLDER_URI],
             certificateEnabled = prefs[Keys.CERT_ENABLED] ?: false,
-            tsaUrl = prefs[Keys.TSA_URL] ?: "",
+            tsaUrl = prefs[Keys.TSA_URL] ?: AppSettings.DEFAULT_TSA_URL,
             tsaAuthHeader = prefs[Keys.TSA_AUTH_HEADER],
             audioFocusPolicy = prefs[Keys.AUDIO_FOCUS_POLICY]?.let {
                 runCatching { AudioFocusPolicy.valueOf(it) }.getOrNull()
