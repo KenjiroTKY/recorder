@@ -1,5 +1,6 @@
 package com.hqrecorder.app.ui.settings
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,7 +36,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.hqrecorder.app.audio.GainProcessor
 import com.hqrecorder.app.settings.AudioFocusPolicy
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,6 +80,42 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(preset.label)
+                }
+            }
+
+            item { Divider(modifier = Modifier.padding(vertical = 16.dp)) }
+
+            item { Text("録音感度（ゲイン）", style = MaterialTheme.typography.titleLarge) }
+
+            item {
+                val maxGainDb = GainProcessor.maxGainDb(preferUnprocessed = settings.certificateEnabled)
+                val displayedGainDb = settings.gainDb.coerceIn(GainProcessor.MIN_GAIN_DB, maxGainDb)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        if (settings.certificateEnabled) {
+                            "電子証明書付与時はAGC非適用のマイク入力(UNPROCESSED)を優先するため、上限を${maxGainDb.roundToInt()}dBまで拡大しています"
+                        } else {
+                            "動画撮影と同様のマイク入力(CAMCORDER)を優先します"
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val gainLabel = "%+.0f dB".format(displayedGainDb)
+                        Text(gainLabel, style = MaterialTheme.typography.bodyLarge)
+                        TextButton(onClick = { viewModel.setGainDb(GainProcessor.DEFAULT_GAIN_DB) }) {
+                            Text("0dBにリセット")
+                        }
+                    }
+                    Slider(
+                        value = displayedGainDb,
+                        onValueChange = { viewModel.setGainDb(it) },
+                        valueRange = GainProcessor.MIN_GAIN_DB..maxGainDb,
+                        steps = (maxGainDb - GainProcessor.MIN_GAIN_DB).roundToInt() - 1
+                    )
                 }
             }
 

@@ -3,8 +3,10 @@ package com.hqrecorder.app.core
 import android.content.Context
 import com.hqrecorder.app.certificate.CertificateManager
 import com.hqrecorder.app.certificate.custody.CustodyLogManager
+import com.hqrecorder.app.certificate.signing.DeviceSigningManager
 import com.hqrecorder.app.settings.SettingsRepository
 import com.hqrecorder.app.storage.RecordingRepository
+import com.hqrecorder.app.time.ClockReliabilityChecker
 
 /**
  * Hilt等を使わない手動DIコンテナ。Applicationが1つ保持し、各層はここから依存を取得する。
@@ -16,4 +18,6 @@ class AppContainer(context: Context) {
     val recordingRepository = RecordingRepository(appContext)
     val certificateManager = CertificateManager(appContext, recordingRepository)
     val custodyLogManager = CustodyLogManager(appContext)
+    val clockReliabilityChecker = ClockReliabilityChecker()
+    val deviceSigningManager = DeviceSigningManager(appContext)
 }

@@ -3,11 +3,13 @@ package com.hqrecorder.app.settings
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.hqrecorder.app.audio.AudioFormatType
 import com.hqrecorder.app.audio.AudioQuality
+import com.hqrecorder.app.audio.GainProcessor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
@@ -30,6 +32,7 @@ class SettingsRepository(private val context: Context) {
         val TSA_AUTH_HEADER = stringPreferencesKey("tsa_auth_header")
         val AUDIO_FOCUS_POLICY = stringPreferencesKey("audio_focus_policy")
         val TRUSTED_ROOT_CAS = stringPreferencesKey("trusted_root_ca_pems")
+        val GAIN_DB = floatPreferencesKey("gain_db")
     }
 
     private val caListSerializer = ListSerializer(String.serializer())
@@ -56,7 +59,8 @@ class SettingsRepository(private val context: Context) {
             audioFocusPolicy = prefs[Keys.AUDIO_FOCUS_POLICY]?.let {
                 runCatching { AudioFocusPolicy.valueOf(it) }.getOrNull()
             } ?: AudioFocusPolicy.PAUSE,
-            trustedRootCaPems = decodeCaList(prefs[Keys.TRUSTED_ROOT_CAS])
+            trustedRootCaPems = decodeCaList(prefs[Keys.TRUSTED_ROOT_CAS]),
+            gainDb = prefs[Keys.GAIN_DB]?.let { GainProcessor.clampGainDb(it) } ?: GainProcessor.DEFAULT_GAIN_DB
         )
     }
 
@@ -108,5 +112,9 @@ class SettingsRepository(private val context: Context) {
             val current = decodeCaList(prefs[Keys.TRUSTED_ROOT_CAS])
             prefs[Keys.TRUSTED_ROOT_CAS] = encodeCaList(current - pem)
         }
+    }
+
+    suspend fun updateGainDb(db: Float) {
+        context.dataStore.edit { prefs -> prefs[Keys.GAIN_DB] = GainProcessor.clampGainDb(db) }
     }
 }

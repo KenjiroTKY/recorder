@@ -5,26 +5,33 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun LevelMeterRow(left: Float, right: Float, isStereo: Boolean) {
+fun LevelMeterRow(left: Float, right: Float, isStereo: Boolean, clipped: Boolean = false) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(if (isStereo) "L" else "MONO")
         LinearProgressIndicator(
             progress = { left.coerceIn(0f, 1f) },
-            modifier = Modifier.fillMaxWidth().height(8.dp)
+            modifier = Modifier.fillMaxWidth().height(8.dp),
+            color = if (clipped) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
         )
         if (isStereo) {
             Spacer(Modifier.height(8.dp))
             Text("R")
             LinearProgressIndicator(
                 progress = { right.coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().height(8.dp)
+                modifier = Modifier.fillMaxWidth().height(8.dp),
+                color = if (clipped) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
             )
+        }
+        if (clipped) {
+            Spacer(Modifier.height(4.dp))
+            Text("クリッピング発生（ゲインを下げてください）", color = MaterialTheme.colorScheme.error)
         }
     }
 }

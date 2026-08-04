@@ -50,4 +50,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun removeTrustedRootCa(pem: String) {
         viewModelScope.launch { repo.removeTrustedRootCa(pem) }
     }
+
+    fun setGainDb(db: Float) {
+        viewModelScope.launch { repo.updateGainDb(db) }
+    }
 }
