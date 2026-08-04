@@ -67,7 +67,7 @@ data class RecordingMetadata(
 ```
 
 ### AppSettings（settings/AppSettings.kt）
-DataStore Preferencesに保存: 選択中の音質、保存先フォルダURI、電子証明書有効/無効、TSA URL、TSA認証ヘッダ。TSA URLの初期値は`AppSettings.DEFAULT_TSA_URL`（FreeTSA.org、`https://freetsa.org/tsr`）とし、未設定のままでも電子証明書機能を有効化するだけで動作確認できるようにする（SPEC.md 3.5参照。設定画面から任意のTSAへ変更可能）。
+DataStore Preferencesに保存: 選択中の音質、保存先フォルダURI、電子証明書有効/無効、TSA URL、TSA認証ヘッダ、録音感度（ゲイン、`gainDb: Float`、デフォルト`0.0f`、`-12.0f`〜`12.0f`）。TSA URLの初期値は`AppSettings.DEFAULT_TSA_URL`（FreeTSA.org、`https://freetsa.org/tsr`）とし、未設定のままでも電子証明書機能を有効化するだけで動作確認できるようにする（SPEC.md 3.5参照。設定画面から任意のTSAへ変更可能）。
 
 ## 4. 主要シーケンス
 
@@ -118,6 +118,13 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 4. 1件でも削除に失敗した場合（例: SAFプロバイダ側のエラー、9.6の読み取り専用化が将来有効な場合の書き込み拒否）はメタデータを残したまま`RecordingListViewModel`の`deleteError: StateFlow<String?>`にエラーを設定し、一覧画面にSnackbar等で表示してユーザーが再試行できるようにする
 5. 削除中は対象行にインジケータを表示し、多重タップによる二重実行を防ぐ
 
+### 4.9 録音感度（ゲイン）調整（SPEC.md 3.8）
+
+1. `SettingsScreen`のスライダー（`Slider`、`-12f..12f`、1dB刻み）操作 → `SettingsViewModel.setGainDb(db)` → `SettingsRepository.updateGainDb()` で`floatPreferencesKey`によりDataStoreへ即時永続化する
+2. `RecordingController`（または`HomeViewModel`）は`SettingsRepository.settingsFlow`の`gainDb`変化を購読し、値が変わるたびに`StereoAudioRecorder.setGainDb(db)`（内部的に`@Volatile`なフィールドを更新）を呼び出す。録音中でも次の`readLoop()`反復から新しいゲインが即座に適用される（4.2の音質切替が録音開始時に固定されるのとは異なり、リアルタイム変更を許容する設計とした。理由は5節参照）
+3. `StereoAudioRecorder.readLoop()`は読み取ったバッファに対し、`writer`への書き込みおよびレベルメーター計算(`computeLevelShort`/`computeLevelFloat`)の前段で`GainProcessor.applyGainShort(buffer, frames, channelCount, gainDb)` / `applyGainFloat(...)`（`audio/GainProcessor.kt`、Android非依存の純粋関数としてユニットテスト対象）を適用する。この関数はdB→線形係数変換（`10^(db/20)`）、係数の乗算、表現範囲（16bit: ±32767、float: ±1.0）でのハードクリップ、クリップ発生有無の判定を行い`clipped: Boolean`を返す
+4. クリップ有無は`AudioLevel`に`clipped: Boolean`フィールドを追加して`RecorderListener.onLevel()`経由でUIへ伝搬し、`LevelMeterRow`が警告表示（赤枠等）を行う。警告は直近の`onLevel`コールバック（約100ms間隔）単位の簡易フラグとし、統計・履歴は保持しない（SPEC.md 3.8参照）
+
 ## 5. 設計判断・簡略化した点（MVPでの割り切り）
 
 | 項目 | 採用した設計 | 理由 |
@@ -128,6 +135,8 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 | 通話等によるマイク割り込み処理 | `AudioManager`のAudioFocusコールバックのみで検知（4.7節） | AudioFocus APIは本来再生用だが、通話アプリ等は着信/通話開始時に`AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE`相当でフォーカスを要求するため、間接的な割り込み検知の手段として利用する。`PhoneStateListener`/`READ_PHONE_STATE`によるより厳密な通話状態検知や、Bluetooth接続変化の個別ブロードキャスト受信は権限スコープ拡大・実装コストの観点からスコープ外とし、将来の拡張ポイントとする。 |
 | 24bit WAV | `AudioRecord`の`ENCODING_PCM_FLOAT`で取得しアプリ側で24bit整数へ変換。非対応機種は16bit/モノラルへ自動フォールバック | Android標準APIには24bit整数の直接指定がないため。 |
 | 録音削除時の部分失敗 | 音声本体・サイドカーの一部でも削除に失敗したらメタデータは削除せず全体を失敗扱いにする（部分成功を許容しない） | メタデータだけ消えて実ファイルがSAF上に孤立して残る状態（"孤児ファイル"）を避け、ユーザーが一覧から再試行できるようにするため。 |
+| ゲイン設定の反映タイミング | 音質プリセット（4.2、録音開始時に固定）とは異なり、録音中でも設定変更を即座に反映する | `AudioRecord`の再初期化を伴わないソフトウェア的な係数適用のため実装コストが低く、録音しながら感度を微調整したいICレコーダーとしての利用シーンを優先した。 |
+| クリッピング検知の粒度 | バッファ単位（`onLevel`コールバック、約100ms間隔）での簡易フラグのみとし、クリップ回数やピーク値の詳細な統計・ログは保持しない | MVPではユーザーへの即時警告（レベルを下げる判断材料）で十分であり、詳細な統計はユースケースに対して過剰と判断した。 |
 
 ## 6. 権限とマニフェスト
 
