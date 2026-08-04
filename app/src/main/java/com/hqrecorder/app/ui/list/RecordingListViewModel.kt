@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.hqrecorder.app.HqRecorderApp
 import com.hqrecorder.app.certificate.CertificateVerifier
 import com.hqrecorder.app.certificate.VerificationResult
+import com.hqrecorder.app.certificate.custody.CustodyAction
 import com.hqrecorder.app.storage.RecordingMetadata
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +23,7 @@ class RecordingListViewModel(application: Application) : AndroidViewModel(applic
     private val repo = app.container.recordingRepository
     private val settingsRepository = app.container.settingsRepository
     private val certificateManager = app.container.certificateManager
+    private val custodyLogManager = app.container.custodyLogManager
     private val verifier = CertificateVerifier(application)
 
     val recordings: StateFlow<List<RecordingMetadata>> = repo.recordings
@@ -42,7 +44,9 @@ class RecordingListViewModel(application: Application) : AndroidViewModel(applic
         val certUri = recording.certificateFileUri ?: return
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
-                verifier.verify(Uri.parse(recording.fileUri), Uri.parse(certUri))
+                val verifyResult = verifier.verify(Uri.parse(recording.fileUri), Uri.parse(certUri))
+                custodyLogManager.append(CustodyAction.VERIFIED, recording.id, System.currentTimeMillis())
+                verifyResult
             }
             _verificationResult.value = result
         }

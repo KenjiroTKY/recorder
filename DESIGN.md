@@ -144,7 +144,7 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 
 ## 9. Phase 3設計方針: 証拠性強化機能（SPEC.md 3.6対応）
 
-証拠性強化機能は現時点では設計方針の整理に留め、実装はPhase 3で行う。既存の`certificate/`パッケージを拡張する形とし、新規パッケージは設けない想定（`certificate/custody/`, `certificate/signing/` のサブパッケージ程度に留める）。
+証拠性強化機能は7項目のうち9.3・9.4を実装済み、残り（9.1, 9.2, 9.5〜9.7）は設計方針の整理に留め実装は今後のissueで行う。既存の`certificate/`パッケージを拡張する形とし、新規パッケージは設けない想定（`certificate/custody/`, `certificate/signing/` のサブパッケージ程度に留める。9.3は`certificate/chain/`）。
 
 ### 9.1 開始時刻証明
 録音開始時（`RecordingService.startRecording()`直後）に乱数シード（`SecureRandom`生成のnonce）を生成し、そのハッシュを3.5と同じ`TimestampClient`経由でTSAへ送信・トークン化。`RecordingMetadata`に`startCertificateFileUri`として保持し、終了時証明（既存の`certificateFileUri`）とペアで「開始時刻〜終了時刻の間に生成された」ことを示す。
@@ -152,11 +152,13 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 ### 9.2 端末鍵による電子署名
 `android.security.keystore.KeyGenParameterSpec`でECDSA鍵ペアをAndroid Keystoreに生成（`setIsStrongBoxBacked(true)`を端末対応時は優先指定、非対応時はTEEへフォールバック）。鍵はエクスポート不可（`setUserAuthenticationRequired`は録音の自動化を妨げるため要件からは外す）。録音確定時のファイルハッシュに対し`Signature`APIで署名し、`<ファイル名>.sig`として保存。署名検証用の公開鍵は`<ファイル名>.pub`として同時にエクスポート（第三者が端末にアクセスできなくても検証できるようにするため）。
 
-### 9.3 区間ハッシュチェーン
-`StereoAudioRecorder`の書き込みループに、一定間隔（デフォルト30秒、設定可能）ごとにその時点までのファイル内容のSHA-256を算出するフックを追加。各区間ハッシュは「前区間のハッシュ＋今区間の内容ハッシュ」を連結して再ハッシュする方式（簡易Merkle chain）とし、`<ファイル名>.chain.json`に区間ごとの `{ index, offsetBytes, hash }` のリストとして保存。これにより録音全体を送らずとも特定区間のみの差し替えを検知可能。ライブでハッシュ計算するためCPU負荷が増えるため、音声バッファ処理とは別スレッド（`Dispatchers.Default`）で行い録音スレッドをブロックしない。
+### 9.3 区間ハッシュチェーン（実装済み）
+`StereoAudioRecorder`が音声読み取りスレッドとは別の専用スレッド（`StereoAudioRecorder-Chain`、優先度`MIN_PRIORITY`）で1秒間隔にポーリングし、一定間隔（デフォルト30秒、`chainIntervalMs`で変更可）ごとに前回チェックポイント以降の新規区間だけをファイルから読み直してSHA-256を算出する（`audio/IntervalHashChainRecorder`）。各区間ハッシュは「前区間のハッシュ＋今区間の内容ハッシュ」を連結して再ハッシュする方式（簡易Merkle chain、`certificate/chain/IntervalHashChainBuilder`、純粋ロジックとしてユニットテスト対象）とし、パート確定時に`<ファイル名>.chain.json`へ区間ごとの `{ index, offsetBytes, hash }` のリストとして保存、SAF保存先フォルダへ音声ファイルとあわせてコピーされる。これにより録音全体を送らずとも特定区間のみの差し替えを検知可能。
 
-### 9.4 Chain of Custodyログ
-録音メタデータとは別に`custody_log.jsonl`（追記専用JSON Lines）を導入。各エントリは `{ timestamp, action, actor, targetRecordingId, prevEntryHash, entryHash }` を持ち、`entryHash`は自分以外の全フィールド+`prevEntryHash`のSHA-256とすることで改ざん時に連鎖が破綻し検知できるようにする。`action`は `CREATED / COPIED / SHARED / VERIFIED / EXPORTED` 等。`actor`は現状は端末のInstallation ID相当（Firebase等は使わず自前でUUID生成しDataStoreに保持）のみで、マルチユーザー識別は将来検討。
+WAVはヘッダのサイズフィールドを`stop()`時に書き戻すため、ヘッダ領域を区間ハッシュの対象に含めると「ヘッダ確定」自体が誤検知の原因になる。これを避けるため、`openNewPart()`で`writer.start()`直後（まだ音声データを書き込む前）のオフセットを起点とし、ヘッダ領域はチェーンの対象外とする。
+
+### 9.4 Chain of Custodyログ（実装済み）
+録音メタデータとは別に`custody_log.jsonl`（追記専用JSON Lines、app内部ストレージ）を導入（`certificate/custody/CustodyLogManager`）。各エントリは `{ timestampEpochMs, action, actor, targetRecordingId, prevEntryHash, entryHash }` を持ち、`entryHash`は自分以外の全フィールド+`prevEntryHash`のSHA-256とすることで改ざん時に連鎖が破綻し検知できるようにする（連結・検証ロジックは`certificate/custody/CustodyLogChain`として純粋関数に分離しユニットテスト対象）。`action`は `CREATED / COPIED / SHARED / VERIFIED / EXPORTED` の5種を定義し、現状は録音確定時（`RecordingService.finalizeRecording()`）に`CREATED`、証明書検証時（`RecordingListViewModel.verify()`）に`VERIFIED`を記録する。`COPIED/SHARED/EXPORTED`は共有・エクスポート機能実装時に追加する。`actor`は現状は端末のInstallation ID相当（Firebase等は使わず自前でUUID生成しSharedPreferencesに保持）のみで、マルチユーザー識別は将来検討。
 
 ### 9.5 TSA発行者証明書チェーンの検証
 `CertificateVerifier.verify()`を拡張し、`TimeStampToken.getTimeStampInfo()`の照合に加えて、`SignerInformationVerifier`（Bouncy Castle）でTSA署名証明書の署名検証・有効期限・失効情報（CRL/OCSP、対応TSAが提供する場合）を確認する。信頼するルートCA証明書はアプリ内にプリセット同梱＋設定画面でユーザー追加可能とする。
