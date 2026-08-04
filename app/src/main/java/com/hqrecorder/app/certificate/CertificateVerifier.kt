@@ -2,28 +2,32 @@ package com.hqrecorder.app.certificate
 
 import android.content.Context
 import android.net.Uri
+import com.hqrecorder.app.certificate.signing.DeviceSignatureVerifier
 import org.bouncycastle.cms.CMSSignedData
 import org.bouncycastle.tsp.TimeStampToken
 import java.util.Date
 
 sealed class VerificationResult {
-    data class Valid(val timestamp: Date, val tsaName: String?) : VerificationResult()
+    data class Valid(
+        val timestamp: Date,
+        val tsaName: String?,
+        val chainVerified: Boolean = false,
+        val chainWarning: String? = null
+    ) : VerificationResult()
     data class Invalid(val reason: String) : VerificationResult()
 }
 
 /**
  * 録音ファイルと.tsr(TimeStampToken)を突き合わせ、改ざんの有無を検証する。
- * 現状はメッセージダイジェストの一致確認のみで、TSA署名者証明書チェーンの検証は将来課題。
+ * メッセージダイジェストの一致確認に加え、TsaChainVerifierでTSA署名者証明書の署名・有効期限・
+ * (ユーザーが信頼ルートCAを登録済みの場合の)証明書チェーン・失効情報(CRL)を確認する(9.5)。
  */
 class CertificateVerifier(private val context: Context) {
 
-    fun verify(fileUri: Uri, tsrUri: Uri): VerificationResult {
+    fun verify(fileUri: Uri, tsrUri: Uri, trustedRootCaPems: List<String> = emptyList()): VerificationResult {
         return try {
             val fileHash = hash(fileUri)
-            val tokenBytes = context.contentResolver.openInputStream(tsrUri)?.use { it.readBytes() }
-                ?: return VerificationResult.Invalid("証明書ファイルを読み込めません")
-
-            val token = TimeStampToken(CMSSignedData(tokenBytes))
+            val token = readToken(tsrUri)
             val tstInfo = token.timeStampInfo
             val expectedDigest = tstInfo.messageImprintDigest
 
@@ -31,13 +35,64 @@ class CertificateVerifier(private val context: Context) {
                 return VerificationResult.Invalid("ファイルのハッシュ値が証明書と一致しません（改ざんの可能性があります）")
             }
 
-            VerificationResult.Valid(
-                timestamp = tstInfo.genTime,
-                tsaName = tstInfo.tsa?.toString()
-            )
+            when (val chainCheck = TsaChainVerifier.verify(token, trustedRootCaPems)) {
+                is TsaChainVerifier.Result.Fatal -> VerificationResult.Invalid(chainCheck.reason)
+                is TsaChainVerifier.Result.Ok -> VerificationResult.Valid(
+                    timestamp = tstInfo.genTime,
+                    tsaName = tstInfo.tsa?.toString(),
+                    chainVerified = chainCheck.chainVerified,
+                    chainWarning = chainCheck.warning
+                )
+            }
         } catch (e: Exception) {
             VerificationResult.Invalid("検証エラー: ${e.message}")
         }
+    }
+
+    /**
+     * 開始時刻証明(9.1)と終了時刻証明のTSA発行時刻を突き合わせ、開始<終了の順序整合性を検証する。
+     * 録音全体が「開始時刻証明〜終了時刻証明の間に生成された」ことを示す補助証跡。
+     */
+    fun verifyStartEndOrder(startTsrUri: Uri, endTsrUri: Uri): VerificationResult {
+        return try {
+            val startTime = readToken(startTsrUri).timeStampInfo.genTime
+            val endToken = readToken(endTsrUri)
+            val endTime = endToken.timeStampInfo.genTime
+
+            if (!StartEndTimeValidator.isValidOrder(startTime, endTime)) {
+                return VerificationResult.Invalid("開始時刻証明が終了時刻証明以降になっています（改ざんの可能性があります）")
+            }
+
+            VerificationResult.Valid(
+                timestamp = endTime,
+                tsaName = endToken.timeStampInfo.tsa?.toString()
+            )
+        } catch (e: Exception) {
+            VerificationResult.Invalid("開始/終了時刻証明の検証エラー: ${e.message}")
+        }
+    }
+
+    /**
+     * 端末鍵署名(9.2)を、エクスポート済みの公開鍵(.pub)だけを使って検証する。
+     * ファイルハッシュ・署名・公開鍵はいずれもファイルから読み込むため、端末のKeystoreへのアクセスは不要。
+     */
+    fun verifyDeviceSignature(fileUri: Uri, signatureUri: Uri, publicKeyUri: Uri): Boolean {
+        return try {
+            val fileHash = hash(fileUri)
+            val signatureBytes = context.contentResolver.openInputStream(signatureUri)?.use { it.readBytes() }
+                ?: return false
+            val publicKeyBytes = context.contentResolver.openInputStream(publicKeyUri)?.use { it.readBytes() }
+                ?: return false
+            DeviceSignatureVerifier.verifyEncoded(publicKeyBytes, fileHash, signatureBytes)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun readToken(tsrUri: Uri): TimeStampToken {
+        val tokenBytes = context.contentResolver.openInputStream(tsrUri)?.use { it.readBytes() }
+            ?: throw IllegalStateException("証明書ファイルを読み込めません: $tsrUri")
+        return TimeStampToken(CMSSignedData(tokenBytes))
     }
 
     private fun hash(uri: Uri): ByteArray {

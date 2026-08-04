@@ -37,9 +37,10 @@ object SafStorageManager {
         context: Context,
         folderUri: Uri,
         sidecarName: String,
-        bytes: ByteArray
+        bytes: ByteArray,
+        mimeType: String = "application/octet-stream"
     ): Uri {
-        val dest = createFileInFolder(context, folderUri, sidecarName, "application/timestamp-reply")
+        val dest = createFileInFolder(context, folderUri, sidecarName, mimeType)
             ?: throw IllegalStateException("証明書ファイルを作成できませんでした")
         val out = context.contentResolver.openOutputStream(dest)
             ?: throw IllegalStateException("証明書ファイルに書き込めませんでした")
@@ -67,5 +68,31 @@ object SafStorageManager {
         } catch (e: Exception) {
             ReadOnlyStatus.FAILED
         }
+    }
+
+    /**
+     * 録音の音声本体と関連サイドカーファイル（電子証明書 `.tsr`、区間ハッシュチェーン `.chain.json`）を
+     * まとめて削除する(SPEC.md 3.7 / DESIGN.md 4.8)。存在しないファイルはスキップする。
+     * 1件でも削除に失敗した場合はfalseを返し、呼び出し側はメタデータを消さずに再試行可能とする。
+     */
+    fun deleteRecordingFiles(context: Context, recording: RecordingMetadata): Boolean {
+        val targets = mutableListOf(Uri.parse(recording.fileUri))
+        recording.certificateFileUri?.let { targets.add(Uri.parse(it)) }
+
+        val audioFileName = DocumentFile.fromSingleUri(context, Uri.parse(recording.fileUri))?.name
+        val folder = DocumentFile.fromTreeUri(context, Uri.parse(recording.folderUri))
+        val chainDoc = audioFileName?.let { folder?.findFile("$it.chain.json") }
+
+        var allSucceeded = true
+        for (uri in targets) {
+            val doc = DocumentFile.fromSingleUri(context, uri)
+            if (doc != null && doc.exists() && !doc.delete()) {
+                allSucceeded = false
+            }
+        }
+        if (chainDoc != null && chainDoc.exists() && !chainDoc.delete()) {
+            allSucceeded = false
+        }
+        return allSucceeded
     }
 }

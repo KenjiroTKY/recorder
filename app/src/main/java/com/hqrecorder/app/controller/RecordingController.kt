@@ -68,13 +68,13 @@ class RecordingController(private val appContext: Context) {
         }
     }
 
-    fun startRecording(quality: AudioQuality, folderUri: Uri) {
+    fun startRecording(quality: AudioQuality, folderUri: Uri, preferUnprocessed: Boolean) {
         val intent = Intent(appContext, RecordingService::class.java)
         ContextCompat.startForegroundService(appContext, intent)
         scope.launch {
             if (!bound) bind()
             connectedSignal.await()
-            service?.startRecording(quality, folderUri)
+            service?.startRecording(quality, folderUri, preferUnprocessed)
         }
     }
 
