@@ -144,13 +144,13 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 
 ## 9. Phase 3設計方針: 証拠性強化機能（SPEC.md 3.6対応）
 
-証拠性強化機能は7項目のうち9.1・9.3・9.4を実装済み、残り（9.2, 9.5〜9.7）は設計方針の整理に留め実装は今後のissueで行う。既存の`certificate/`パッケージを拡張する形とし、新規パッケージは設けない想定（`certificate/custody/`, `certificate/signing/` のサブパッケージ程度に留める。9.3は`certificate/chain/`）。
+証拠性強化機能は7項目のうち9.1〜9.4を実装済み、残り（9.5〜9.7）は設計方針の整理に留め実装は今後のissueで行う。既存の`certificate/`パッケージを拡張する形とし、新規パッケージは設けない想定（`certificate/custody/`, `certificate/signing/` のサブパッケージ程度に留める。9.3は`certificate/chain/`）。
 
 ### 9.1 開始時刻証明（実装済み）
 録音開始時（`RecordingService.startRecording()`直後）に乱数シード（`SecureRandom`生成のnonce）を生成し、そのハッシュを3.5と同じ`TimestampClient`経由でTSAへ送信・トークン化。`RecordingMetadata`に`startCertificateFileUri`として保持し、終了時証明（既存の`certificateFileUri`）とペアで「開始時刻〜終了時刻の間に生成された」ことを示す。TSAへの送信は録音開始と同時に非同期で開始し、録音停止時の`finalizeRecording()`で結果を待ち合わせて`RecordingMetadata`へ反映する（証明書機能が無効、またはTSA通信失敗時は`startCertificateFileUri=null`のまま終了時刻証明のみで運用）。開始/終了の順序整合性判定は`certificate/StartEndTimeValidator`に純粋関数として分離しユニットテスト対象とし、`CertificateVerifier.verifyStartEndOrder()`が実際のTSRペアからTSA発行時刻を取り出して用いる。一覧画面の「検証」操作時に自動で突き合わせる。
 
-### 9.2 端末鍵による電子署名
-`android.security.keystore.KeyGenParameterSpec`でECDSA鍵ペアをAndroid Keystoreに生成（`setIsStrongBoxBacked(true)`を端末対応時は優先指定、非対応時はTEEへフォールバック）。鍵はエクスポート不可（`setUserAuthenticationRequired`は録音の自動化を妨げるため要件からは外す）。録音確定時のファイルハッシュに対し`Signature`APIで署名し、`<ファイル名>.sig`として保存。署名検証用の公開鍵は`<ファイル名>.pub`として同時にエクスポート（第三者が端末にアクセスできなくても検証できるようにするため）。
+### 9.2 端末鍵による電子署名（実装済み）
+`android.security.keystore.KeyGenParameterSpec`でECDSA鍵ペアをAndroid Keystoreに生成（`setIsStrongBoxBacked(true)`を端末対応時は優先指定、非対応時は`StrongBoxUnavailableException`をキャッチしてTEEへフォールバック。`certificate/signing/DeviceKeyManager`）。鍵はKeystore外へエクスポート不可（`setUserAuthenticationRequired`は録音の自動化を妨げるため要件からは外す）。証明書機能ON（既存の`certificateEnabled`設定を流用）かつ録音確定時、`RecordingService.finalizeRecording()`でファイルハッシュに対し`Signature`APIで署名し、`<ファイル名>.sig`として保存（`certificate/signing/DeviceSigningManager`）。署名検証用の公開鍵は`<ファイル名>.pub`（X.509エンコード）として同時にエクスポートし、第三者が端末にアクセスできなくても検証できるようにする。検証ロジック自体は標準JCA APIのみに依存する`certificate/signing/DeviceSignatureVerifier`に純粋関数として分離し（AndroidKeystore非依存のためユニットテスト対象）、一覧画面の「検証」操作時にも自動で突き合わせる。鍵生成・署名自体はAndroid Keystore依存が強くInstrumentedテスト中心。
 
 ### 9.3 区間ハッシュチェーン（実装済み）
 `StereoAudioRecorder`が音声読み取りスレッドとは別の専用スレッド（`StereoAudioRecorder-Chain`、優先度`MIN_PRIORITY`）で1秒間隔にポーリングし、一定間隔（デフォルト30秒、`chainIntervalMs`で変更可）ごとに前回チェックポイント以降の新規区間だけをファイルから読み直してSHA-256を算出する（`audio/IntervalHashChainRecorder`）。各区間ハッシュは「前区間のハッシュ＋今区間の内容ハッシュ」を連結して再ハッシュする方式（簡易Merkle chain、`certificate/chain/IntervalHashChainBuilder`、純粋ロジックとしてユニットテスト対象）とし、パート確定時に`<ファイル名>.chain.json`へ区間ごとの `{ index, offsetBytes, hash }` のリストとして保存、SAF保存先フォルダへ音声ファイルとあわせてコピーされる。これにより録音全体を送らずとも特定区間のみの差し替えを検知可能。

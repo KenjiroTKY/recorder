@@ -20,5 +20,7 @@ data class RecordingMetadata(
     val certificateIssuedAtEpochMs: Long? = null,
     val certificateTsaUrl: String? = null,
     val startCertificateFileUri: String? = null,
-    val startCertificateIssuedAtEpochMs: Long? = null
+    val startCertificateIssuedAtEpochMs: Long? = null,
+    val signatureFileUri: String? = null,
+    val publicKeyFileUri: String? = null
 )

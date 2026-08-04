@@ -306,6 +306,18 @@ class RecordingService : Service(), RecorderListener {
             }
 
             val settings = app.container.settingsRepository.settingsFlow.first()
+
+            if (settings.certificateEnabled) {
+                val signResult = runCatching { app.container.deviceSigningManager.sign(current) }.getOrNull()
+                if (signResult != null) {
+                    current = current.copy(
+                        signatureFileUri = signResult.signatureFileUri,
+                        publicKeyFileUri = signResult.publicKeyFileUri
+                    )
+                    repo.updateRecording(current)
+                }
+            }
+
             if (settings.certificateEnabled && settings.tsaUrl.isNotBlank()) {
                 val pending = current.copy(certificateStatus = CertificateStatus.PENDING.name)
                 repo.updateRecording(pending)
@@ -336,7 +348,8 @@ class RecordingService : Service(), RecorderListener {
                 context = this,
                 folderUri = folderUri,
                 sidecarName = "$baseName.start.tsr",
-                bytes = tokenBytes
+                bytes = tokenBytes,
+                mimeType = "application/timestamp-reply"
             )
             StartCertificateResult(sidecarUri.toString(), System.currentTimeMillis())
         }.getOrNull()

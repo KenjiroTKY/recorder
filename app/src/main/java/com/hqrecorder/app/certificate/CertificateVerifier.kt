@@ -2,6 +2,7 @@ package com.hqrecorder.app.certificate
 
 import android.content.Context
 import android.net.Uri
+import com.hqrecorder.app.certificate.signing.DeviceSignatureVerifier
 import org.bouncycastle.cms.CMSSignedData
 import org.bouncycastle.tsp.TimeStampToken
 import java.util.Date
@@ -57,6 +58,23 @@ class CertificateVerifier(private val context: Context) {
             )
         } catch (e: Exception) {
             VerificationResult.Invalid("開始/終了時刻証明の検証エラー: ${e.message}")
+        }
+    }
+
+    /**
+     * 端末鍵署名(9.2)を、エクスポート済みの公開鍵(.pub)だけを使って検証する。
+     * ファイルハッシュ・署名・公開鍵はいずれもファイルから読み込むため、端末のKeystoreへのアクセスは不要。
+     */
+    fun verifyDeviceSignature(fileUri: Uri, signatureUri: Uri, publicKeyUri: Uri): Boolean {
+        return try {
+            val fileHash = hash(fileUri)
+            val signatureBytes = context.contentResolver.openInputStream(signatureUri)?.use { it.readBytes() }
+                ?: return false
+            val publicKeyBytes = context.contentResolver.openInputStream(publicKeyUri)?.use { it.readBytes() }
+                ?: return false
+            DeviceSignatureVerifier.verifyEncoded(publicKeyBytes, fileHash, signatureBytes)
+        } catch (e: Exception) {
+            false
         }
     }
 
