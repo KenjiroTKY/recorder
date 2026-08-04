@@ -67,7 +67,7 @@ data class RecordingMetadata(
 ```
 
 ### AppSettings（settings/AppSettings.kt）
-DataStore Preferencesに保存: 選択中の音質、保存先フォルダURI、電子証明書有効/無効、TSA URL、TSA認証ヘッダ。
+DataStore Preferencesに保存: 選択中の音質、保存先フォルダURI、電子証明書有効/無効、TSA URL、TSA認証ヘッダ。TSA URLの初期値は`AppSettings.DEFAULT_TSA_URL`（FreeTSA.org、`https://freetsa.org/tsr`）とし、未設定のままでも電子証明書機能を有効化するだけで動作確認できるようにする（SPEC.md 3.5参照。設定画面から任意のTSAへ変更可能）。
 
 ## 4. 主要シーケンス
 
