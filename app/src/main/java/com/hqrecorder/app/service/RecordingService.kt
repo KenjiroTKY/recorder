@@ -101,7 +101,7 @@ class RecordingService : Service(), RecorderListener {
         return START_NOT_STICKY
     }
 
-    fun startRecording(quality: AudioQuality, folderUri: Uri) {
+    fun startRecording(quality: AudioQuality, folderUri: Uri, preferUnprocessed: Boolean) {
         if (_uiState.value.state == RecordingState.RECORDING) return
 
         currentQuality = quality
@@ -115,14 +115,17 @@ class RecordingService : Service(), RecorderListener {
         startForeground(NOTIFICATION_ID, notificationHelper.buildNotification(RecordingState.RECORDING, 0L))
         acquireWakeLock()
         requestAudioFocus()
+
+        val newRecorder = StereoAudioRecorder(listener = this)
+        recorder = newRecorder
         audioFocusPolicyCollectorJob = serviceScope.launch {
             val app = application as HqRecorderApp
-            app.container.settingsRepository.settingsFlow.collect { audioFocusPolicy = it.audioFocusPolicy }
+            app.container.settingsRepository.settingsFlow.collect {
+                audioFocusPolicy = it.audioFocusPolicy
+                newRecorder.setGainDb(it.gainDb)
+            }
         }
-
-        recorder = StereoAudioRecorder(listener = this).also {
-            it.start(quality, workDir = cacheWorkDir(), baseFileName = currentBaseName)
-        }
+        newRecorder.start(quality, workDir = cacheWorkDir(), baseFileName = currentBaseName, preferUnprocessed = preferUnprocessed)
         startElapsedRealtime = SystemClock.elapsedRealtime()
 
         _uiState.value = RecordingUiState(

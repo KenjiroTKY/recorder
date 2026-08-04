@@ -67,7 +67,7 @@ data class RecordingMetadata(
 ```
 
 ### AppSettings（settings/AppSettings.kt）
-DataStore Preferencesに保存: 選択中の音質、保存先フォルダURI、電子証明書有効/無効、TSA URL、TSA認証ヘッダ、録音感度（ゲイン、`gainDb: Float`、デフォルト`0.0f`、`-12.0f`〜`12.0f`）。TSA URLの初期値は`AppSettings.DEFAULT_TSA_URL`（FreeTSA.org、`https://freetsa.org/tsr`）とし、未設定のままでも電子証明書機能を有効化するだけで動作確認できるようにする（SPEC.md 3.5参照。設定画面から任意のTSAへ変更可能）。
+DataStore Preferencesに保存: 選択中の音質、保存先フォルダURI、電子証明書有効/無効、TSA URL、TSA認証ヘッダ、録音感度（ゲイン、`gainDb: Float`、デフォルト`0.0f`、格納可能範囲`-24.0f`〜`40.0f`。実際に適用される上限は録音開始時のソース選択に応じて`24.0f`/`40.0f`に制限される、4.9節参照）。TSA URLの初期値は`AppSettings.DEFAULT_TSA_URL`（FreeTSA.org、`https://freetsa.org/tsr`）とし、未設定のままでも電子証明書機能を有効化するだけで動作確認できるようにする（SPEC.md 3.5参照。設定画面から任意のTSAへ変更可能）。
 
 ## 4. 主要シーケンス
 
@@ -118,12 +118,14 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 4. 1件でも削除に失敗した場合（例: SAFプロバイダ側のエラー、9.6の読み取り専用化が将来有効な場合の書き込み拒否）はメタデータを残したまま`RecordingListViewModel`の`deleteError: StateFlow<String?>`にエラーを設定し、一覧画面にSnackbar等で表示してユーザーが再試行できるようにする
 5. 削除中は対象行にインジケータを表示し、多重タップによる二重実行を防ぐ
 
-### 4.9 録音感度（ゲイン）調整（SPEC.md 3.8）
+### 4.9 入力ソース選択と録音感度（ゲイン）調整（SPEC.md 3.1/3.8）
 
-1. `SettingsScreen`のスライダー（`Slider`、`-12f..12f`、1dB刻み）操作 → `SettingsViewModel.setGainDb(db)` → `SettingsRepository.updateGainDb()` で`floatPreferencesKey`によりDataStoreへ即時永続化する
-2. `RecordingController`（または`HomeViewModel`）は`SettingsRepository.settingsFlow`の`gainDb`変化を購読し、値が変わるたびに`StereoAudioRecorder.setGainDb(db)`（内部的に`@Volatile`なフィールドを更新）を呼び出す。録音中でも次の`readLoop()`反復から新しいゲインが即座に適用される（4.2の音質切替が録音開始時に固定されるのとは異なり、リアルタイム変更を許容する設計とした。理由は5節参照）
-3. `StereoAudioRecorder.readLoop()`は読み取ったバッファに対し、`writer`への書き込みおよびレベルメーター計算(`computeLevelShort`/`computeLevelFloat`)の前段で`GainProcessor.applyGainShort(buffer, frames, channelCount, gainDb)` / `applyGainFloat(...)`（`audio/GainProcessor.kt`、Android非依存の純粋関数としてユニットテスト対象）を適用する。この関数はdB→線形係数変換（`10^(db/20)`）、係数の乗算、表現範囲（16bit: ±32767、float: ±1.0）でのハードクリップ、クリップ発生有無の判定を行い`clipped: Boolean`を返す
-4. クリップ有無は`AudioLevel`に`clipped: Boolean`フィールドを追加して`RecorderListener.onLevel()`経由でUIへ伝搬し、`LevelMeterRow`が警告表示（赤枠等）を行う。警告は直近の`onLevel`コールバック（約100ms間隔）単位の簡易フラグとし、統計・履歴は保持しない（SPEC.md 3.8参照）
+1. `StereoAudioRecorder.createAudioRecord(sampleRate, wantFloat, preferUnprocessed)`は`preferUnprocessed`（＝録音開始時点の`AppSettings.certificateEnabled`）に応じてソース探索順を切り替える。`true`（電子証明書ON、証拠性優先）なら`UNPROCESSED → CAMCORDER → MIC`、`false`（通常時）なら`CAMCORDER → MIC → UNPROCESSED`の順で`AudioRecord`初期化を試み、最初に成功したソースを採用する（対応ソースが端末依存のため、いずれの優先順でも他ソースへ自動フォールバックする）
+2. `GainProcessor.maxGainDb(preferUnprocessed)`が、実際に選ばれたソースの傾向に応じたゲイン上限（CAMCORDER想定: `MAX_GAIN_DB`=+24dB、UNPROCESSED想定: `MAX_GAIN_DB_UNPROCESSED`=+40dB）を返す。`StereoAudioRecorder.start()`はこの上限を`maxGainDb`として保持し、以後の`setGainDb()`呼び出しをこの範囲にクランプする。上限は音質プリセット同様、録音開始時（＝ソース確定時）に固定される
+3. `SettingsScreen`のスライダーは`settings.certificateEnabled`を見て`valueRange`を動的に切り替え（`GainProcessor.maxGainDb(preferUnprocessed = settings.certificateEnabled)`）、UI上でも録音時に適用される上限が視覚的にわかるようにする。スライダー操作 → `SettingsViewModel.setGainDb(db)` → `SettingsRepository.updateGainDb()` で`floatPreferencesKey`によりDataStoreへ即時永続化する（保存値自体は両モードの上限のうち広い方`MAX_GAIN_DB_UNPROCESSED`でクランプし、実際の適用上限は2.の録音開始時の判定に委ねる）
+4. `RecordingController`（または`HomeViewModel`）は`SettingsRepository.settingsFlow`の`gainDb`変化を購読し、値が変わるたびに`StereoAudioRecorder.setGainDb(db)`（内部的に`@Volatile`なフィールドを更新）を呼び出す。録音中でも次の`readLoop()`反復から新しいゲイン値が即座に適用される（4.2の音質切替が録音開始時に固定されるのとは異なり、値自体はリアルタイム変更を許容する設計とした。理由は5節参照。ただし適用上限は2.の通り録音開始時点で固定）
+5. `StereoAudioRecorder.readLoop()`は読み取ったバッファに対し、`writer`への書き込みおよびレベルメーター計算(`computeLevelShort`/`computeLevelFloat`)の前段で`GainProcessor.applyGainShort(buffer, frames, channelCount, gainDb)` / `applyGainFloat(...)`（`audio/GainProcessor.kt`、Android非依存の純粋関数としてユニットテスト対象）を適用する。この関数はdB→線形係数変換（`10^(db/20)`）、係数の乗算、表現範囲（16bit: ±32767、float: ±1.0）でのハードクリップ、クリップ発生有無の判定を行い`clipped: Boolean`を返す
+6. クリップ有無は`AudioLevel`に`clipped: Boolean`フィールドを追加して`RecorderListener.onLevel()`経由でUIへ伝搬し、`LevelMeterRow`が警告表示（赤枠等）を行う。警告は直近の`onLevel`コールバック（約100ms間隔）単位の簡易フラグとし、統計・履歴は保持しない（SPEC.md 3.8参照）
 
 ## 5. 設計判断・簡略化した点（MVPでの割り切り）
 
@@ -137,6 +139,7 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 | 録音削除時の部分失敗 | 音声本体・サイドカーの一部でも削除に失敗したらメタデータは削除せず全体を失敗扱いにする（部分成功を許容しない） | メタデータだけ消えて実ファイルがSAF上に孤立して残る状態（"孤児ファイル"）を避け、ユーザーが一覧から再試行できるようにするため。 |
 | ゲイン設定の反映タイミング | 音質プリセット（4.2、録音開始時に固定）とは異なり、録音中でも設定変更を即座に反映する | `AudioRecord`の再初期化を伴わないソフトウェア的な係数適用のため実装コストが低く、録音しながら感度を微調整したいICレコーダーとしての利用シーンを優先した。 |
 | クリッピング検知の粒度 | バッファ単位（`onLevel`コールバック、約100ms間隔）での簡易フラグのみとし、クリップ回数やピーク値の詳細な統計・ログは保持しない | MVPではユーザーへの即時警告（レベルを下げる判断材料）で十分であり、詳細な統計はユースケースに対して過剰と判断した。 |
+| 入力ソース優先順位の切替トリガー | 独立した「生音優先/動画マイク優先」トグルを新設せず、既存の`AppSettings.certificateEnabled`（電子証明書付与ON/OFF）をそのままソース選択のトリガーに流用する | 電子証明書は証拠性を重視するユーザーが有効化する設定であり、「証拠性のためAGC非適用の生音が欲しい」というニーズと一致する。新規トグルによるUIの複雑化・設定間の不整合（証明書はONだがCAMCORDER優先、等）を避けた。 |
 
 ## 6. 権限とマニフェスト
 
@@ -160,7 +163,7 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 
 - WorkManagerによる証明書取得の自動バックグラウンドリトライ
 - `PhoneStateListener`/`READ_PHONE_STATE`による通話状態の直接検知、Bluetooth接続変化（`ACTION_ACL_CONNECTED`等）の個別ブロードキャスト受信によるAudioFocus割り込み検知の精度向上（現状はAudioFocusコールバックのみ、4.7節）
-- ノイズリダクション/AGCの明示トグル（現状は端末依存でUNPROCESSEDを優先取得するのみ）
+- ノイズリダクション/AGCの明示トグル（現状は電子証明書ON/OFFに連動したCAMCORDER/UNPROCESSED自動切替のみ、4.9節）
 - タブレット/外付けマイク（USB-Audio）対応
 - 証拠性強化機能（SPEC.md 3.6）→ 詳細は9節
 - 読み取り専用化（9.6、issue #10）実装後、削除操作が書き込み拒否で失敗するケースの扱い見直し（読み取り専用解除の可否確認、不可時のユーザー案内文言の整備）

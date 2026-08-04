@@ -45,20 +45,34 @@ class StereoAudioRecorder(
 
     private var chainRecorder: IntervalHashChainRecorder? = null
     @Volatile private var currentPartFilePath: String = ""
+    @Volatile private var gainDb: Float = GainProcessor.DEFAULT_GAIN_DB
+    @Volatile private var maxGainDb: Float = GainProcessor.MAX_GAIN_DB
 
     val isStereo: Boolean get() = effectiveChannelCount == 2
 
+    /** 録音感度（ゲイン）を設定する。録音中でも次の読み取りバッファから即座に反映される(SPEC.md 3.8)。 */
+    fun setGainDb(db: Float) {
+        gainDb = GainProcessor.clampGainDb(db, maxGainDb)
+    }
+
+    /**
+     * @param preferUnprocessed trueの場合、証拠性を優先しAGC非適用のUNPROCESSEDソースを優先取得する
+     * （電子証明書付与時。SPEC.md 3.1/3.8）。falseの場合は動画撮影と同様のCAMCORDERソースを優先し、
+     * 実用的な録音音量を確保する。いずれも端末非対応時は他ソースへ自動フォールバックする。
+     */
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
-    fun start(quality: AudioQuality, workDir: File, baseFileName: String) {
+    fun start(quality: AudioQuality, workDir: File, baseFileName: String, preferUnprocessed: Boolean) {
         this.quality = quality
         this.workDir = workDir
         this.baseFileName = baseFileName
         this.partIndex = 1
+        this.maxGainDb = GainProcessor.maxGainDb(preferUnprocessed)
+        this.gainDb = GainProcessor.clampGainDb(gainDb, maxGainDb)
 
         val sampleRate = quality.sampleRateHz
         val wantFloat = quality.formatType == AudioFormatType.WAV && quality.bitDepth >= 24
 
-        val (record, channelCount, encoding) = createAudioRecord(sampleRate, wantFloat)
+        val (record, channelCount, encoding) = createAudioRecord(sampleRate, wantFloat, preferUnprocessed)
         audioRecord = record
         effectiveChannelCount = channelCount
         effectiveEncoding = encoding
@@ -101,12 +115,20 @@ class StereoAudioRecorder(
     }
 
     @SuppressLint("MissingPermission")
-    private fun createAudioRecord(sampleRate: Int, wantFloat: Boolean): Triple<AudioRecord, Int, Int> {
-        val sources = intArrayOf(
-            MediaRecorder.AudioSource.UNPROCESSED,
-            MediaRecorder.AudioSource.CAMCORDER,
-            MediaRecorder.AudioSource.MIC
-        )
+    private fun createAudioRecord(sampleRate: Int, wantFloat: Boolean, preferUnprocessed: Boolean): Triple<AudioRecord, Int, Int> {
+        val sources = if (preferUnprocessed) {
+            intArrayOf(
+                MediaRecorder.AudioSource.UNPROCESSED,
+                MediaRecorder.AudioSource.CAMCORDER,
+                MediaRecorder.AudioSource.MIC
+            )
+        } else {
+            intArrayOf(
+                MediaRecorder.AudioSource.CAMCORDER,
+                MediaRecorder.AudioSource.MIC,
+                MediaRecorder.AudioSource.UNPROCESSED
+            )
+        }
         val channelConfigs = intArrayOf(AudioFormat.CHANNEL_IN_STEREO, AudioFormat.CHANNEL_IN_MONO)
         val encodings = if (wantFloat) {
             intArrayOf(AudioFormat.ENCODING_PCM_FLOAT, AudioFormat.ENCODING_PCM_16BIT)
@@ -205,9 +227,10 @@ class StereoAudioRecorder(
                     val read = record.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
                     if (read > 0) {
                         val frames = read / effectiveChannelCount
+                        val clipped = GainProcessor.applyGainFloat(buffer, read, gainDb)
                         writer?.writeFloatFrame(buffer, frames)
                         maybeRotate()
-                        lastLevelEmit = maybeEmitLevel(lastLevelEmit) { computeLevelFloat(buffer, read) }
+                        lastLevelEmit = maybeEmitLevel(lastLevelEmit) { computeLevelFloat(buffer, read).copy(clipped = clipped) }
                     }
                 }
             } else {
@@ -217,9 +240,10 @@ class StereoAudioRecorder(
                     val read = record.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
                     if (read > 0) {
                         val frames = read / effectiveChannelCount
+                        val clipped = GainProcessor.applyGainShort(buffer, read, gainDb)
                         writer?.writeShortFrame(buffer, frames)
                         maybeRotate()
-                        lastLevelEmit = maybeEmitLevel(lastLevelEmit) { computeLevelShort(buffer, read) }
+                        lastLevelEmit = maybeEmitLevel(lastLevelEmit) { computeLevelShort(buffer, read).copy(clipped = clipped) }
                     }
                 }
             }

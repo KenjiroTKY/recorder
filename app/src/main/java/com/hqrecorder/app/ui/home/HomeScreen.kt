@@ -83,7 +83,12 @@ fun HomeScreen(
             Text(text = formatElapsed(uiState.elapsedMs), style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(16.dp))
 
-            LevelMeterRow(left = uiState.level.leftPeak, right = uiState.level.rightPeak, isStereo = uiState.isStereo)
+            LevelMeterRow(
+                left = uiState.level.leftPeak,
+                right = uiState.level.rightPeak,
+                isStereo = uiState.isStereo,
+                clipped = uiState.level.clipped
+            )
 
             Spacer(Modifier.height(32.dp))
 
