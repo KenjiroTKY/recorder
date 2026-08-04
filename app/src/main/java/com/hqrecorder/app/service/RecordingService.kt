@@ -22,6 +22,7 @@ import com.hqrecorder.app.audio.RecordingState
 import com.hqrecorder.app.audio.StereoAudioRecorder
 import com.hqrecorder.app.audio.totalDurationMs
 import com.hqrecorder.app.audio.totalSizeBytes
+import com.hqrecorder.app.certificate.custody.CustodyAction
 import com.hqrecorder.app.settings.AudioFocusPolicy
 import com.hqrecorder.app.storage.CertificateStatus
 import com.hqrecorder.app.storage.RecordingMetadata
@@ -248,6 +249,18 @@ class RecordingService : Service(), RecorderListener {
                 _uiState.value = _uiState.value.copy(errorMessage = "保存に失敗しました: ${it.message}")
             }
             localFile.delete()
+
+            part.chainSidecarPath?.let { chainSidecarPath ->
+                val chainFile = File(chainSidecarPath)
+                runCatching {
+                    if (chainFile.exists()) {
+                        val chainDestUri = SafStorageManager.createFileInFolder(this, folderUri, chainFile.name, "application/json")
+                            ?: throw IllegalStateException("区間ハッシュチェーンファイルを作成できません")
+                        SafStorageManager.copyLocalFileIntoUri(this, chainFile, chainDestUri)
+                    }
+                }
+                chainFile.delete()
+            }
         }
 
         if (destUris.isEmpty()) return
@@ -267,6 +280,7 @@ class RecordingService : Service(), RecorderListener {
             certificateStatus = CertificateStatus.NONE.name
         )
         repo.addRecording(metadata)
+        app.container.custodyLogManager.append(CustodyAction.CREATED, metadata.id, metadata.createdAtEpochMs)
 
         serviceScope.launch {
             val settings = app.container.settingsRepository.settingsFlow.first()

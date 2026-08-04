@@ -11,7 +11,8 @@ interface AudioFileWriter {
 data class AudioFileWriterResult(
     val filePath: String,
     val durationMs: Long,
-    val fileSizeBytes: Long
+    val fileSizeBytes: Long,
+    val chainSidecarPath: String? = null
 )
 
 /** 長時間録音でファイル分割された各パートの再生時間・サイズを1件分に合算する（SPEC.md 3.4）。 */

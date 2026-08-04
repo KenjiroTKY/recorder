@@ -2,6 +2,7 @@ package com.hqrecorder.app.core
 
 import android.content.Context
 import com.hqrecorder.app.certificate.CertificateManager
+import com.hqrecorder.app.certificate.custody.CustodyLogManager
 import com.hqrecorder.app.settings.SettingsRepository
 import com.hqrecorder.app.storage.RecordingRepository
 
@@ -14,4 +15,5 @@ class AppContainer(context: Context) {
     val settingsRepository = SettingsRepository(appContext)
     val recordingRepository = RecordingRepository(appContext)
     val certificateManager = CertificateManager(appContext, recordingRepository)
+    val custodyLogManager = CustodyLogManager(appContext)
 }

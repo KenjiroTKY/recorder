@@ -6,6 +6,9 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import androidx.annotation.RequiresPermission
+import com.hqrecorder.app.certificate.chain.ChainEntry
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
@@ -23,10 +26,12 @@ interface RecorderListener {
  */
 class StereoAudioRecorder(
     private val listener: RecorderListener,
-    private val maxPartBytes: Long = 1_800_000_000L // WAVヘッダの32bitサイズ上限(4GB)対策
+    private val maxPartBytes: Long = 1_800_000_000L, // WAVヘッダの32bitサイズ上限(4GB)対策
+    private val chainIntervalMs: Long = 30_000L // 区間ハッシュチェーンのチェックポイント間隔(SPEC.md 3.6/DESIGN.md 9.3)
 ) {
     private var audioRecord: AudioRecord? = null
     private var readThread: Thread? = null
+    private var chainThread: Thread? = null
     private val running = AtomicBoolean(false)
     private val paused = AtomicBoolean(false)
 
@@ -37,6 +42,9 @@ class StereoAudioRecorder(
     private var workDir: File? = null
     private var partIndex = 1
     private var baseFileName = "recording"
+
+    private var chainRecorder: IntervalHashChainRecorder? = null
+    @Volatile private var currentPartFilePath: String = ""
 
     val isStereo: Boolean get() = effectiveChannelCount == 2
 
@@ -66,6 +74,11 @@ class StereoAudioRecorder(
             priority = Thread.MAX_PRIORITY
             start()
         }
+        chainThread = Thread(::chainCheckpointLoop, "StereoAudioRecorder-Chain").apply {
+            priority = Thread.MIN_PRIORITY
+            isDaemon = true
+            start()
+        }
     }
 
     fun pause() { paused.set(true) }
@@ -76,6 +89,9 @@ class StereoAudioRecorder(
         running.set(false)
         readThread?.join(2_000)
         readThread = null
+        chainThread?.interrupt()
+        chainThread?.join(2_000)
+        chainThread = null
         audioRecord?.let { record ->
             runCatching { record.stop() }
             record.release()
@@ -134,12 +150,45 @@ class StereoAudioRecorder(
         val fileName = RecordingFileNaming.partFileName(baseFileName, quality.fileExtension, partIndex)
         val file = File(dir, fileName)
         writer?.start(file.absolutePath, quality.sampleRateHz, effectiveChannelCount)
+        // WAVヘッダ等、stop()時に書き戻される領域をチェーン対象から除外するため、
+        // start()直後(まだ音声データが書き込まれる前)のオフセットを起点にする。
+        val headerOffset = writer?.bytesWritten() ?: 0L
+        chainRecorder = IntervalHashChainRecorder(chainIntervalMs, initialOffsetBytes = headerOffset)
+        currentPartFilePath = file.absolutePath
     }
 
     private fun closeCurrentPart() {
         writer?.let { w ->
             val result = w.stop()
-            listener.onPartFinished(result)
+            val entries = chainRecorder?.finalizeChain(result.filePath, result.fileSizeBytes).orEmpty()
+            val sidecarPath = writeChainSidecar(result.filePath, entries)
+            currentPartFilePath = ""
+            listener.onPartFinished(result.copy(chainSidecarPath = sidecarPath))
+        }
+    }
+
+    private fun writeChainSidecar(filePath: String, entries: List<ChainEntry>): String? {
+        if (entries.isEmpty()) return null
+        return runCatching {
+            val sidecarFile = File("$filePath.chain.json")
+            sidecarFile.writeText(Json.encodeToString(entries))
+            sidecarFile.absolutePath
+        }.getOrNull()
+    }
+
+    private fun chainCheckpointLoop() {
+        while (running.get()) {
+            val path = currentPartFilePath
+            if (path.isNotEmpty()) {
+                runCatching {
+                    chainRecorder?.checkpointIfDue(path, writer?.bytesWritten() ?: 0L, System.currentTimeMillis())
+                }
+            }
+            try {
+                Thread.sleep(1_000)
+            } catch (e: InterruptedException) {
+                break
+            }
         }
     }
 

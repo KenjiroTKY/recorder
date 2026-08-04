@@ -21,3 +21,5 @@ object Sha256 {
         return digest.digest()
     }
 }
+
+fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
