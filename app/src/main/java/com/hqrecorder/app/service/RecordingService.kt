@@ -27,6 +27,7 @@ import com.hqrecorder.app.certificate.TimestampClient
 import com.hqrecorder.app.certificate.custody.CustodyAction
 import com.hqrecorder.app.settings.AudioFocusPolicy
 import com.hqrecorder.app.storage.CertificateStatus
+import com.hqrecorder.app.storage.ReadOnlyStatus
 import com.hqrecorder.app.storage.RecordingMetadata
 import com.hqrecorder.app.storage.SafStorageManager
 import com.hqrecorder.app.time.ClockReliabilityChecker
@@ -256,6 +257,7 @@ class RecordingService : Service(), RecorderListener {
 
         val destUris = mutableListOf<Uri>()
         val copiedParts = mutableListOf<AudioFileWriterResult>()
+        val readOnlyStatuses = mutableListOf<ReadOnlyStatus>()
 
         for (part in partResults) {
             val localFile = File(part.filePath)
@@ -266,6 +268,7 @@ class RecordingService : Service(), RecorderListener {
                 SafStorageManager.copyLocalFileIntoUri(this, localFile, destUri)
                 destUris.add(destUri)
                 copiedParts.add(part)
+                readOnlyStatuses.add(SafStorageManager.tryMakeReadOnly(destUri))
             }.onFailure {
                 _uiState.value = _uiState.value.copy(errorMessage = "保存に失敗しました: ${it.message}")
             }
@@ -286,6 +289,13 @@ class RecordingService : Service(), RecorderListener {
 
         if (destUris.isEmpty()) return
 
+        val readOnlyStatus = when {
+            readOnlyStatuses.isEmpty() -> null
+            readOnlyStatuses.all { it == ReadOnlyStatus.APPLIED } -> ReadOnlyStatus.APPLIED
+            readOnlyStatuses.any { it == ReadOnlyStatus.FAILED } -> ReadOnlyStatus.FAILED
+            else -> ReadOnlyStatus.UNSUPPORTED
+        }
+
         val metadata = RecordingMetadata(
             id = currentRecordingId,
             displayName = currentBaseName,
@@ -298,7 +308,8 @@ class RecordingService : Service(), RecorderListener {
             sampleRateHz = currentQuality.sampleRateHz,
             bitDepth = currentQuality.bitDepth,
             aacBitrateBps = currentQuality.aacBitrateBps,
-            certificateStatus = CertificateStatus.NONE.name
+            certificateStatus = CertificateStatus.NONE.name,
+            readOnlyStatus = readOnlyStatus?.name
         )
         repo.addRecording(metadata)
         app.container.custodyLogManager.append(CustodyAction.CREATED, metadata.id, metadata.createdAtEpochMs)

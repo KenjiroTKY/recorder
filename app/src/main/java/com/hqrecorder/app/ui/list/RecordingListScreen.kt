@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hqrecorder.app.certificate.VerificationResult
 import com.hqrecorder.app.storage.CertificateStatus
+import com.hqrecorder.app.storage.ReadOnlyStatus
 import com.hqrecorder.app.storage.RecordingMetadata
 import com.hqrecorder.app.time.ClockReliability
 
@@ -148,6 +149,9 @@ private fun RecordingRow(
             clockReliabilityLabel(recording.clockReliability)?.let {
                 Text(it, style = MaterialTheme.typography.labelSmall)
             }
+            readOnlyStatusLabel(recording.readOnlyStatus)?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall)
+            }
         }
         when (CertificateStatus.valueOf(recording.certificateStatus)) {
             CertificateStatus.ISSUED -> TextButton(onClick = onVerify) { Text("検証") }
@@ -165,6 +169,13 @@ private fun certificateStatusLabel(status: String) = when (CertificateStatus.val
     CertificateStatus.PENDING -> "証明書: 発行待ち"
     CertificateStatus.ISSUED -> "証明書: 発行済み"
     CertificateStatus.FAILED -> "証明書: 発行失敗"
+}
+
+private fun readOnlyStatusLabel(status: String?): String? = when (status?.let { runCatching { ReadOnlyStatus.valueOf(it) }.getOrNull() }) {
+    ReadOnlyStatus.APPLIED -> "読み取り専用化: 済み"
+    ReadOnlyStatus.FAILED -> "読み取り専用化: 失敗"
+    ReadOnlyStatus.UNSUPPORTED -> "読み取り専用化: 非対応"
+    null -> null
 }
 
 private fun clockReliabilityLabel(status: String?): String? = when (status?.let { runCatching { ClockReliability.valueOf(it) }.getOrNull() }) {
