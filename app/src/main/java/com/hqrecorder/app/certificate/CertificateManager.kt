@@ -8,7 +8,6 @@ import com.hqrecorder.app.storage.RecordingRepository
 import com.hqrecorder.app.storage.SafStorageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.security.MessageDigest
 
 /**
  * 録音ファイルに対するRFC3161タイムスタンプ証明書の発行を統括する。
@@ -50,17 +49,8 @@ class CertificateManager(
     }
 
     private fun hashUri(uri: Uri): ByteArray {
-        val digest = MessageDigest.getInstance("SHA-256")
         val input = context.contentResolver.openInputStream(uri)
             ?: throw IllegalStateException("録音ファイルを読み込めません: $uri")
-        input.use { stream ->
-            val buffer = ByteArray(64 * 1024)
-            while (true) {
-                val read = stream.read(buffer)
-                if (read <= 0) break
-                digest.update(buffer, 0, read)
-            }
-        }
-        return digest.digest()
+        return Sha256.hash(input)
     }
 }

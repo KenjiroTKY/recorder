@@ -13,3 +13,8 @@ data class AudioFileWriterResult(
     val durationMs: Long,
     val fileSizeBytes: Long
 )
+
+/** 長時間録音でファイル分割された各パートの再生時間・サイズを1件分に合算する（SPEC.md 3.4）。 */
+fun List<AudioFileWriterResult>.totalDurationMs(): Long = sumOf { it.durationMs }
+
+fun List<AudioFileWriterResult>.totalSizeBytes(): Long = sumOf { it.fileSizeBytes }

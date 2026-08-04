@@ -13,8 +13,11 @@ import com.hqrecorder.app.audio.AudioFormatType
 import com.hqrecorder.app.audio.AudioLevel
 import com.hqrecorder.app.audio.AudioQuality
 import com.hqrecorder.app.audio.RecorderListener
+import com.hqrecorder.app.audio.RecordingFileNaming
 import com.hqrecorder.app.audio.RecordingState
 import com.hqrecorder.app.audio.StereoAudioRecorder
+import com.hqrecorder.app.audio.totalDurationMs
+import com.hqrecorder.app.audio.totalSizeBytes
 import com.hqrecorder.app.storage.CertificateStatus
 import com.hqrecorder.app.storage.RecordingMetadata
 import com.hqrecorder.app.storage.SafStorageManager
@@ -28,9 +31,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
-import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 import java.util.UUID
 
 data class RecordingUiState(
@@ -90,8 +91,7 @@ class RecordingService : Service(), RecorderListener {
         currentQuality = quality
         currentFolderUri = folderUri
         currentRecordingId = UUID.randomUUID().toString()
-        val timeTag = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        currentBaseName = "${timeTag}_${quality.qualityTag}"
+        currentBaseName = RecordingFileNaming.baseName(Date(), quality)
         partResults.clear()
         accumulatedPauseMs = 0L
 
@@ -163,8 +163,7 @@ class RecordingService : Service(), RecorderListener {
         val repo = app.container.recordingRepository
 
         val destUris = mutableListOf<Uri>()
-        var totalSize = 0L
-        var totalDuration = 0L
+        val copiedParts = mutableListOf<AudioFileWriterResult>()
 
         for (part in partResults) {
             val localFile = File(part.filePath)
@@ -174,8 +173,7 @@ class RecordingService : Service(), RecorderListener {
                     ?: throw IllegalStateException("保存先にファイルを作成できません")
                 SafStorageManager.copyLocalFileIntoUri(this, localFile, destUri)
                 destUris.add(destUri)
-                totalSize += part.fileSizeBytes
-                totalDuration += part.durationMs
+                copiedParts.add(part)
             }.onFailure {
                 _uiState.value = _uiState.value.copy(errorMessage = "保存に失敗しました: ${it.message}")
             }
@@ -190,8 +188,8 @@ class RecordingService : Service(), RecorderListener {
             fileUri = destUris.first().toString(),
             folderUri = folderUri.toString(),
             createdAtEpochMs = System.currentTimeMillis(),
-            durationMs = totalDuration,
-            fileSizeBytes = totalSize,
+            durationMs = copiedParts.totalDurationMs(),
+            fileSizeBytes = copiedParts.totalSizeBytes(),
             formatType = currentQuality.formatType.name,
             sampleRateHz = currentQuality.sampleRateHz,
             bitDepth = currentQuality.bitDepth,
