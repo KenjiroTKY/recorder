@@ -29,6 +29,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hqrecorder.app.certificate.VerificationResult
 import com.hqrecorder.app.storage.CertificateStatus
 import com.hqrecorder.app.storage.RecordingMetadata
+import com.hqrecorder.app.time.ClockReliability
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,6 +103,9 @@ private fun RecordingRow(
                 style = MaterialTheme.typography.labelSmall
             )
             Text(certificateStatusLabel(recording.certificateStatus), style = MaterialTheme.typography.labelSmall)
+            clockReliabilityLabel(recording.clockReliability)?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall)
+            }
         }
         when (CertificateStatus.valueOf(recording.certificateStatus)) {
             CertificateStatus.ISSUED -> TextButton(onClick = onVerify) { Text("検証") }
@@ -116,6 +120,13 @@ private fun certificateStatusLabel(status: String) = when (CertificateStatus.val
     CertificateStatus.PENDING -> "証明書: 発行待ち"
     CertificateStatus.ISSUED -> "証明書: 発行済み"
     CertificateStatus.FAILED -> "証明書: 発行失敗"
+}
+
+private fun clockReliabilityLabel(status: String?): String? = when (status?.let { runCatching { ClockReliability.valueOf(it) }.getOrNull() }) {
+    ClockReliability.RELIABLE -> "時刻源: 信頼できる(NTP同期確認済み)"
+    ClockReliability.UNVERIFIED -> "時刻源: 未確認(NTPとの差分が大きい)"
+    ClockReliability.UNKNOWN -> "時刻源: 未確認(NTP通信不可)"
+    null -> null
 }
 
 private fun formatDuration(ms: Long): String {

@@ -27,10 +27,13 @@ import com.hqrecorder.app.settings.AudioFocusPolicy
 import com.hqrecorder.app.storage.CertificateStatus
 import com.hqrecorder.app.storage.RecordingMetadata
 import com.hqrecorder.app.storage.SafStorageManager
+import com.hqrecorder.app.time.ClockReliabilityChecker
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -66,6 +69,8 @@ class RecordingService : Service(), RecorderListener {
     private var currentBaseName: String = ""
     private var currentRecordingId: String = ""
     private val partResults = mutableListOf<AudioFileWriterResult>()
+
+    private var clockReliabilityJob: Deferred<ClockReliabilityChecker.CheckResult>? = null
 
     private var audioManager: AudioManager? = null
     private var audioFocusPolicy: AudioFocusPolicy = AudioFocusPolicy.PAUSE
@@ -124,6 +129,10 @@ class RecordingService : Service(), RecorderListener {
             it.start(quality, workDir = cacheWorkDir(), baseFileName = currentBaseName)
         }
         startElapsedRealtime = SystemClock.elapsedRealtime()
+
+        clockReliabilityJob = serviceScope.async(Dispatchers.IO) {
+            (application as HqRecorderApp).container.clockReliabilityChecker.check()
+        }
 
         _uiState.value = RecordingUiState(
             state = RecordingState.RECORDING,
@@ -283,9 +292,19 @@ class RecordingService : Service(), RecorderListener {
         app.container.custodyLogManager.append(CustodyAction.CREATED, metadata.id, metadata.createdAtEpochMs)
 
         serviceScope.launch {
+            var current = metadata
+            val clockResult = clockReliabilityJob?.await()
+            if (clockResult != null) {
+                current = current.copy(
+                    clockReliability = clockResult.reliability.name,
+                    clockOffsetMs = clockResult.offsetMs
+                )
+                repo.updateRecording(current)
+            }
+
             val settings = app.container.settingsRepository.settingsFlow.first()
             if (settings.certificateEnabled && settings.tsaUrl.isNotBlank()) {
-                val pending = metadata.copy(certificateStatus = CertificateStatus.PENDING.name)
+                val pending = current.copy(certificateStatus = CertificateStatus.PENDING.name)
                 repo.updateRecording(pending)
                 app.container.certificateManager.issueCertificate(
                     recording = pending,
