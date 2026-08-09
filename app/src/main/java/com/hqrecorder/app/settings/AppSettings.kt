@@ -11,7 +11,8 @@ data class AppSettings(
     val tsaAuthHeader: String? = null,
     val audioFocusPolicy: AudioFocusPolicy = AudioFocusPolicy.PAUSE,
     val trustedRootCaPems: List<String> = emptyList(),
-    val gainDb: Float = GainProcessor.DEFAULT_GAIN_DB
+    val gainDb: Float = GainProcessor.DEFAULT_GAIN_DB,
+    val autoGainReductionEnabled: Boolean = false
 ) {
     companion object {
         // FreeTSA.org: 認証不要・無料で使えるRFC3161準拠TSA。開発・検証用のデフォルト値

@@ -126,6 +126,8 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 4. `RecordingController`（または`HomeViewModel`）は`SettingsRepository.settingsFlow`の`gainDb`変化を購読し、値が変わるたびに`StereoAudioRecorder.setGainDb(db)`（内部的に`@Volatile`なフィールドを更新）を呼び出す。録音中でも次の`readLoop()`反復から新しいゲイン値が即座に適用される（4.2の音質切替が録音開始時に固定されるのとは異なり、値自体はリアルタイム変更を許容する設計とした。理由は5節参照。ただし適用上限は2.の通り録音開始時点で固定）
 5. `StereoAudioRecorder.readLoop()`は読み取ったバッファに対し、`writer`への書き込みおよびレベルメーター計算(`computeLevelShort`/`computeLevelFloat`)の前段で`GainProcessor.applyGainShort(buffer, frames, channelCount, gainDb)` / `applyGainFloat(...)`（`audio/GainProcessor.kt`、Android非依存の純粋関数としてユニットテスト対象）を適用する。この関数はdB→線形係数変換（`10^(db/20)`）、係数の乗算、表現範囲（16bit: ±32767、float: ±1.0）でのハードクリップ、クリップ発生有無の判定を行い`clipped: Boolean`を返す
 6. クリップ有無は`AudioLevel`に`clipped: Boolean`フィールドを追加して`RecorderListener.onLevel()`経由でUIへ伝搬し、`LevelMeterRow`が警告表示（赤枠等）を行う。警告は直近の`onLevel`コールバック（約100ms間隔）単位の簡易フラグとし、統計・履歴は保持しない（SPEC.md 3.8参照）
+7. `GainProcessor.autoReduceGainDb(currentGainDb, clipped, stepDb = AUTO_REDUCTION_STEP_DB)`（純粋関数、ユニットテスト対象）が、`clipped=true`の場合のみ`currentGainDb`から`stepDb`（デフォルト3dB）を引いた値を`MIN_GAIN_DB`でクランプして返す。`StereoAudioRecorder.readLoop()`は`autoGainReductionEnabled`（`@Volatile`、`setAutoGainReductionEnabled()`で設定）が有効かつ`applyGainShort/Float`が`clipped=true`を返した場合にこの関数を呼び、戻り値が変化した場合のみ内部の`gainDb`を更新して`RecorderListener.onGainAutoReduced(newGainDb)`を通知する。連続する複数バッファでの過剰な追従を避けるため、直近の自動低減から`AUTO_REDUCTION_COOLDOWN_MS`（500ms）以内は再度の自動低減をスキップする（SPEC.md 3.8参照）
+8. `RecordingService`（`RecorderListener`実装）は`onGainAutoReduced(newGainDb)`受信時に`SettingsRepository.updateGainDb(newGainDb)`を呼びDataStoreへ永続化する。これは4.の`settingsFlow`購読ループを経由して`SettingsScreen`のスライダー表示にも反映される（スライダー操作時と同じ経路をそのまま利用するため、UIとレコーダー間の状態は自動低減時も単一の真実源＝DataStoreに収束する）。自動低減の有効/無効自体も`AppSettings.autoGainReductionEnabled`として同じ`settingsFlow`購読ループで`StereoAudioRecorder.setAutoGainReductionEnabled()`に伝搬される
 
 ## 5. 設計判断・簡略化した点（MVPでの割り切り）
 
@@ -140,6 +142,7 @@ WAVヘッダのサイズフィールドは32bitのため、1パートあたり�
 | ゲイン設定の反映タイミング | 音質プリセット（4.2、録音開始時に固定）とは異なり、録音中でも設定変更を即座に反映する | `AudioRecord`の再初期化を伴わないソフトウェア的な係数適用のため実装コストが低く、録音しながら感度を微調整したいICレコーダーとしての利用シーンを優先した。 |
 | クリッピング検知の粒度 | バッファ単位（`onLevel`コールバック、約100ms間隔）での簡易フラグのみとし、クリップ回数やピーク値の詳細な統計・ログは保持しない | MVPではユーザーへの即時警告（レベルを下げる判断材料）で十分であり、詳細な統計はユースケースに対して過剰と判断した。 |
 | 入力ソース優先順位の切替トリガー | 独立した「生音優先/動画マイク優先」トグルを新設せず、既存の`AppSettings.certificateEnabled`（電子証明書付与ON/OFF）をそのままソース選択のトリガーに流用する | 電子証明書は証拠性を重視するユーザーが有効化する設定であり、「証拠性のためAGC非適用の生音が欲しい」というニーズと一致する。新規トグルによるUIの複雑化・設定間の不整合（証明書はONだがCAMCORDER優先、等）を避けた。 |
+| クリッピング時の自動ゲイン低減の追従方式 | クリップ検出のたびに固定ステップ(3dB)で下げるシンプルな比例なしの制御とし、500msのクールダウンのみで過剰追従を防ぐ。ゲインを自動で上げ直す機構は持たない | 本格的なAGC（ピーク検出の平滑化、リリースタイムを持つ復帰制御等）は実装・検証コストが高く、MVPでは「音割れの致命的な悪化を防ぐ」という目的に対して過剰と判断した。上げ直しを自動化しないのは、無音区間明けの急な大声等で意図せずゲインが上がり再度クリップする振動を避けるため。ユーザーが手動で上げ直す操作は引き続き可能（SPEC.md 3.8参照）。 |
 
 ## 6. 権限とマニフェスト
 

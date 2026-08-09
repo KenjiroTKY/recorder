@@ -81,4 +81,27 @@ class GainProcessorTest {
         assertEquals(GainProcessor.MAX_GAIN_DB, GainProcessor.maxGainDb(preferUnprocessed = false), 0.0001f)
         assertTrue(GainProcessor.MAX_GAIN_DB_UNPROCESSED > GainProcessor.MAX_GAIN_DB)
     }
+
+    @Test
+    fun autoReduceGainDb_notClipped_returnsCurrentValueUnchanged() {
+        assertEquals(10f, GainProcessor.autoReduceGainDb(10f, clipped = false), 0.0001f)
+    }
+
+    @Test
+    fun autoReduceGainDb_clipped_stepsDownByDefaultStep() {
+        val reduced = GainProcessor.autoReduceGainDb(10f, clipped = true)
+        assertEquals(10f - GainProcessor.AUTO_REDUCTION_STEP_DB, reduced, 0.0001f)
+    }
+
+    @Test
+    fun autoReduceGainDb_clipped_usesCustomStep() {
+        val reduced = GainProcessor.autoReduceGainDb(10f, clipped = true, stepDb = 1f)
+        assertEquals(9f, reduced, 0.0001f)
+    }
+
+    @Test
+    fun autoReduceGainDb_clipped_clampsAtMinGainDb() {
+        val reduced = GainProcessor.autoReduceGainDb(GainProcessor.MIN_GAIN_DB + 1f, clipped = true)
+        assertEquals(GainProcessor.MIN_GAIN_DB, reduced, 0.0001f)
+    }
 }
