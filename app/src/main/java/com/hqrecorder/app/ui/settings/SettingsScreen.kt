@@ -1,11 +1,14 @@
 package com.hqrecorder.app.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,6 +21,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -38,14 +42,21 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hqrecorder.app.audio.GainProcessor
 import com.hqrecorder.app.settings.AudioFocusPolicy
+import com.hqrecorder.app.storage.SaveFolderStatus
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel()) {
     val settings by viewModel.settings.collectAsState()
+    val folderStatus by viewModel.folderStatus.collectAsState()
+    val isRecordingInProgress by viewModel.isRecordingInProgress.collectAsState()
     var tsaUrlField by remember(settings.tsaUrl) { mutableStateOf(settings.tsaUrl) }
     var newCaPemField by remember { mutableStateOf("") }
+
+    val folderPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri -> uri?.let { viewModel.onFolderPicked(it) } }
 
     Scaffold(
         topBar = {
@@ -65,6 +76,40 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel(
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
+            item { Text("保存先フォルダ", style = MaterialTheme.typography.titleLarge) }
+
+            item {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        when (val status = folderStatus) {
+                            is SaveFolderStatus.NotSet -> "未設定（アプリ内ストレージを使用中）"
+                            is SaveFolderStatus.Accessible -> status.displayName
+                            is SaveFolderStatus.Inaccessible -> "アクセス不可（フォルダが削除されたか、SDカードが取り外された可能性があります）"
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (folderStatus is SaveFolderStatus.Inaccessible) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        }
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (isRecordingInProgress) {
+                        Text(
+                            "録音中は保存先を変更できません",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    } else {
+                        OutlinedButton(onClick = { folderPicker.launch(null) }) {
+                            Text(if (folderStatus is SaveFolderStatus.NotSet) "保存先フォルダを選択" else "保存先を変更")
+                        }
+                    }
+                }
+            }
+
+            item { Divider(modifier = Modifier.padding(vertical = 16.dp)) }
+
             item { Text("録音音質", style = MaterialTheme.typography.titleLarge) }
 
             items(viewModel.presets) { preset ->
