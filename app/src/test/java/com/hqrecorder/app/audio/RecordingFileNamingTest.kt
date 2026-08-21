@@ -30,4 +30,25 @@ class RecordingFileNamingTest {
         assertEquals("20260802_120000_WAV44-16_part2.wav", part2)
         assertEquals("20260802_120000_WAV44-16_part3.wav", part3)
     }
+
+    /** SPEC.md 3.9: フォルダ走査でインポートしたファイル名からの品質推測(WAV)。 */
+    @Test
+    fun parseQualityFromFileName_recognizesWavTag() {
+        val quality = RecordingFileNaming.parseQualityFromFileName("20260802_120000_WAV48-24")
+        assertEquals(ParsedFileQuality(AudioFormatType.WAV, 48_000, 24, 0), quality)
+    }
+
+    /** SPEC.md 3.9: AACタグの推測、およびパート分割サフィックスが付いていても解決できること。 */
+    @Test
+    fun parseQualityFromFileName_recognizesAacTagWithPartSuffix() {
+        val quality = RecordingFileNaming.parseQualityFromFileName("20260802_120000_AAC128_part2")
+        assertEquals(ParsedFileQuality(AudioFormatType.AAC, 0, 0, 128_000), quality)
+    }
+
+    /** SPEC.md 3.9: 命名規則に一致しないファイル名は「不明」(null)として扱う。 */
+    @Test
+    fun parseQualityFromFileName_returnsNullForUnrecognizedName() {
+        val quality = RecordingFileNaming.parseQualityFromFileName("voice_memo_001")
+        assertEquals(null, quality)
+    }
 }

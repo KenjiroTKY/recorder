@@ -7,12 +7,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -47,6 +50,8 @@ fun RecordingListScreen(onBack: () -> Unit, viewModel: RecordingListViewModel = 
     val playbackState by viewModel.playbackState.collectAsState()
     val deletingId by viewModel.deletingId.collectAsState()
     val deleteError by viewModel.deleteError.collectAsState()
+    val missingIds by viewModel.missingIds.collectAsState()
+    val isSyncing by viewModel.isSyncing.collectAsState()
     var pendingDelete by remember { mutableStateOf<RecordingMetadata?>(null) }
 
     Scaffold(
@@ -56,6 +61,15 @@ fun RecordingListScreen(onBack: () -> Unit, viewModel: RecordingListViewModel = 
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "戻る")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { viewModel.syncWithFolders() }, enabled = !isSyncing) {
+                        if (isSyncing) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        } else {
+                            Icon(Icons.Filled.Refresh, contentDescription = "保存先フォルダと同期")
+                        }
                     }
                 }
             )
@@ -71,6 +85,7 @@ fun RecordingListScreen(onBack: () -> Unit, viewModel: RecordingListViewModel = 
                     recording = recording,
                     playbackState = playbackState,
                     isDeleting = deletingId == recording.id,
+                    isMissing = recording.id in missingIds,
                     onRetryCertificate = { viewModel.retryCertificate(recording) },
                     onVerify = { viewModel.verify(recording) },
                     onPlayPauseToggle = {
@@ -122,7 +137,14 @@ fun RecordingListScreen(onBack: () -> Unit, viewModel: RecordingListViewModel = 
                 TextButton(onClick = { pendingDelete = null }) { Text("キャンセル") }
             },
             title = { Text("録音を削除しますか？") },
-            text = { Text("「${recording.displayName}」と関連する証明書ファイルを削除します。この操作は取り消せません。") }
+            text = {
+                val message = if (recording.id in missingIds) {
+                    "「${recording.displayName}」を一覧から削除します。ファイル本体は保存先フォルダ上で見つかりませんでした。"
+                } else {
+                    "「${recording.displayName}」と関連する証明書ファイルを削除します。この操作は取り消せません。"
+                }
+                Text(message)
+            }
         )
     }
 
@@ -143,6 +165,7 @@ private fun RecordingRow(
     recording: RecordingMetadata,
     playbackState: PlaybackUiState,
     isDeleting: Boolean,
+    isMissing: Boolean,
     onRetryCertificate: () -> Unit,
     onVerify: () -> Unit,
     onPlayPauseToggle: () -> Unit,
@@ -161,10 +184,22 @@ private fun RecordingRow(
         ) {
             Column(Modifier.weight(1f)) {
                 Text(recording.displayName, style = MaterialTheme.typography.bodyLarge)
+                val formatLabel = if (recording.formatType == "UNKNOWN") {
+                    "形式不明"
+                } else {
+                    "${recording.formatType} ${recording.sampleRateHz}Hz"
+                }
                 Text(
-                    "${recording.formatType} ${recording.sampleRateHz}Hz  ${formatDuration(recording.durationMs)}  ${formatSize(recording.fileSizeBytes)}",
+                    "$formatLabel  ${formatDuration(recording.durationMs)}  ${formatSize(recording.fileSizeBytes)}",
                     style = MaterialTheme.typography.labelSmall
                 )
+                if (isMissing) {
+                    Text(
+                        "ファイルが見つかりません（保存先フォルダ上で確認できません）",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
                 Text(certificateStatusLabel(recording.certificateStatus), style = MaterialTheme.typography.labelSmall)
                 clockReliabilityLabel(recording.clockReliability)?.let {
                     Text(it, style = MaterialTheme.typography.labelSmall)
@@ -173,7 +208,7 @@ private fun RecordingRow(
                     Text(it, style = MaterialTheme.typography.labelSmall)
                 }
             }
-            IconButton(onClick = onPlayPauseToggle) {
+            IconButton(onClick = onPlayPauseToggle, enabled = !isMissing) {
                 Icon(
                     if (isCurrent && playbackState.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = if (isCurrent && playbackState.isPlaying) "一時停止" else "再生"

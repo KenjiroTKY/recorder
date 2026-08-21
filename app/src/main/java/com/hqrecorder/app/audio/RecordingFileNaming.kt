@@ -21,4 +21,31 @@ object RecordingFileNaming {
         val suffix = if (partIndex <= 1) "" else "_part$partIndex"
         return "$baseFileName$suffix.$extension"
     }
+
+    private val wavTagRegex = Regex("WAV(\\d+)-(\\d+)")
+    private val aacTagRegex = Regex("AAC(\\d+)")
+
+    /**
+     * baseName()の逆変換。保存先フォルダ走査でインデックス外のファイルを取り込む際(SPEC.md 3.9)、
+     * ファイル名に含まれる品質タグをベストエフォートで推測する。命名規則に一致しない場合はnull(不明)。
+     */
+    fun parseQualityFromFileName(fileNameWithoutExtension: String): ParsedFileQuality? {
+        wavTagRegex.find(fileNameWithoutExtension)?.let { match ->
+            val sampleRateKHz = match.groupValues[1].toIntOrNull() ?: return null
+            val bitDepth = match.groupValues[2].toIntOrNull() ?: return null
+            return ParsedFileQuality(AudioFormatType.WAV, sampleRateKHz * 1000, bitDepth, 0)
+        }
+        aacTagRegex.find(fileNameWithoutExtension)?.let { match ->
+            val kbps = match.groupValues[1].toIntOrNull() ?: return null
+            return ParsedFileQuality(AudioFormatType.AAC, 0, 0, kbps * 1000)
+        }
+        return null
+    }
 }
+
+data class ParsedFileQuality(
+    val formatType: AudioFormatType,
+    val sampleRateHz: Int,
+    val bitDepth: Int,
+    val aacBitrateBps: Int
+)
