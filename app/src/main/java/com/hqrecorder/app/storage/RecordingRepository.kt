@@ -59,4 +59,19 @@ class RecordingRepository(private val context: Context) {
     }
 
     fun findById(id: String): RecordingMetadata? = _recordings.value.find { it.id == id }
+
+    /**
+     * 保存先フォルダの実ファイルと同期し、インデックス未登録のファイルをインポートする(SPEC.md 3.9)。
+     * SAFのフォルダ走査を含みブロッキングI/Oを伴うため、呼び出し側はIOディスパッチャ上で実行すること。
+     * 戻り値は、フォルダ上に実体が見つからなかった既存録音のID(一覧側での警告表示に利用)。
+     */
+    @Synchronized
+    fun syncWithFolders(folderUris: Set<String>): Set<String> {
+        val result = RecordingFolderScanner.scan(context, _recordings.value, folderUris)
+        if (result.imported.isNotEmpty()) {
+            _recordings.value = result.imported + _recordings.value
+            persist()
+        }
+        return result.missingIds
+    }
 }

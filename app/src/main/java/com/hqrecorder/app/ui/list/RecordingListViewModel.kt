@@ -39,6 +39,34 @@ class RecordingListViewModel(application: Application) : AndroidViewModel(applic
 
     val recordings: StateFlow<List<RecordingMetadata>> = repo.recordings
 
+    private val _missingIds = MutableStateFlow<Set<String>>(emptySet())
+    val missingIds: StateFlow<Set<String>> = _missingIds.asStateFlow()
+
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
+    init {
+        syncWithFolders()
+    }
+
+    /**
+     * 保存先フォルダ(現在の保存先および過去にインデックスで参照されたフォルダ)をSAF経由で走査し、
+     * 一覧をフォルダの実態と同期する(SPEC.md 3.9)。一覧画面の表示時・手動更新時に呼び出す。
+     */
+    fun syncWithFolders() {
+        if (_isSyncing.value) return
+        _isSyncing.value = true
+        viewModelScope.launch {
+            val missing = withContext(Dispatchers.IO) {
+                val currentFolder = settingsRepository.settingsFlow.first().saveFolderUri
+                val folderUris = (repo.recordings.value.map { it.folderUri } + listOfNotNull(currentFolder)).toSet()
+                repo.syncWithFolders(folderUris)
+            }
+            _missingIds.value = missing
+            _isSyncing.value = false
+        }
+    }
+
     private val _verificationResult = MutableStateFlow<VerificationResult?>(null)
     val verificationResult: StateFlow<VerificationResult?> = _verificationResult.asStateFlow()
 
