@@ -18,7 +18,9 @@ android {
 
     signingConfigs {
         getByName("debug") {
-            storeFile = file("../keystore/debug.keystore")
+            // ローカル環境とGitHub Actionsのビルドで署名を一致させ、同一端末への
+            // 上書きインストールを可能にするため、リポジトリ管理下の共有デバッグ鍵を使う。
+            storeFile = rootProject.file("keystore/debug.keystore")
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"

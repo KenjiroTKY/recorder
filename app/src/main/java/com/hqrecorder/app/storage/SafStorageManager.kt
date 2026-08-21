@@ -20,6 +20,20 @@ object SafStorageManager {
         )
     }
 
+    /**
+     * 現在の保存先設定を、設定画面での表示用ステータスへ解決する(SPEC.md 3.3.1)。
+     * フォルダ削除・SDカード取り外し等でアクセス不能になっている場合はINACCESSIBLEを返す。
+     */
+    fun resolveFolderStatus(context: Context, folderUriString: String?): SaveFolderStatus {
+        if (folderUriString == null) return SaveFolderStatus.NotSet
+        val doc = runCatching { DocumentFile.fromTreeUri(context, Uri.parse(folderUriString)) }.getOrNull()
+        return if (doc != null && doc.exists() && doc.canWrite()) {
+            SaveFolderStatus.Accessible(doc.name ?: folderUriString)
+        } else {
+            SaveFolderStatus.Inaccessible
+        }
+    }
+
     fun createFileInFolder(context: Context, folderUri: Uri, displayName: String, mimeType: String): Uri? {
         val dir = DocumentFile.fromTreeUri(context, folderUri) ?: return null
         return dir.createFile(mimeType, displayName)?.uri
