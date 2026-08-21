@@ -16,6 +16,17 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // ローカル環境とGitHub Actionsのビルドで署名を一致させ、同一端末への
+            // 上書きインストールを可能にするため、リポジトリ管理下の共有デバッグ鍵を使う。
+            storeFile = rootProject.file("keystore/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
