@@ -18,6 +18,8 @@ interface RecorderListener {
     fun onLevel(level: AudioLevel) {}
     fun onPartFinished(result: AudioFileWriterResult) {}
     fun onError(error: Throwable) {}
+    /** クリッピング検出時の自動ゲイン低減オプションが実際にゲインを引き下げた際に呼ばれる（SPEC.md 3.8参照）。 */
+    fun onGainAutoReduced(newGainDb: Float) {}
 }
 
 /**
@@ -47,12 +49,19 @@ class StereoAudioRecorder(
     @Volatile private var currentPartFilePath: String = ""
     @Volatile private var gainDb: Float = GainProcessor.DEFAULT_GAIN_DB
     @Volatile private var maxGainDb: Float = GainProcessor.MAX_GAIN_DB
+    @Volatile private var autoGainReductionEnabled: Boolean = false
+    @Volatile private var lastAutoReduceAtMs: Long = 0L
 
     val isStereo: Boolean get() = effectiveChannelCount == 2
 
     /** 録音感度（ゲイン）を設定する。録音中でも次の読み取りバッファから即座に反映される(SPEC.md 3.8)。 */
     fun setGainDb(db: Float) {
         gainDb = GainProcessor.clampGainDb(db, maxGainDb)
+    }
+
+    /** クリッピング検出時の自動ゲイン低減オプションの有効/無効を設定する(SPEC.md 3.8)。 */
+    fun setAutoGainReductionEnabled(enabled: Boolean) {
+        autoGainReductionEnabled = enabled
     }
 
     /**
@@ -228,6 +237,7 @@ class StereoAudioRecorder(
                     if (read > 0) {
                         val frames = read / effectiveChannelCount
                         val clipped = GainProcessor.applyGainFloat(buffer, read, gainDb)
+                        if (clipped) maybeAutoReduceGain()
                         writer?.writeFloatFrame(buffer, frames)
                         maybeRotate()
                         lastLevelEmit = maybeEmitLevel(lastLevelEmit) { computeLevelFloat(buffer, read).copy(clipped = clipped) }
@@ -241,6 +251,7 @@ class StereoAudioRecorder(
                     if (read > 0) {
                         val frames = read / effectiveChannelCount
                         val clipped = GainProcessor.applyGainShort(buffer, read, gainDb)
+                        if (clipped) maybeAutoReduceGain()
                         writer?.writeShortFrame(buffer, frames)
                         maybeRotate()
                         lastLevelEmit = maybeEmitLevel(lastLevelEmit) { computeLevelShort(buffer, read).copy(clipped = clipped) }
@@ -259,6 +270,17 @@ class StereoAudioRecorder(
             return now
         }
         return lastEmit
+    }
+
+    private fun maybeAutoReduceGain() {
+        if (!autoGainReductionEnabled) return
+        val now = System.currentTimeMillis()
+        if (now - lastAutoReduceAtMs < GainProcessor.AUTO_REDUCTION_COOLDOWN_MS) return
+        val reduced = GainProcessor.autoReduceGainDb(gainDb, clipped = true)
+        if (reduced == gainDb) return
+        gainDb = reduced
+        lastAutoReduceAtMs = now
+        listener.onGainAutoReduced(reduced)
     }
 
     private fun maybeRotate() {

@@ -33,6 +33,7 @@ class SettingsRepository(private val context: Context) {
         val AUDIO_FOCUS_POLICY = stringPreferencesKey("audio_focus_policy")
         val TRUSTED_ROOT_CAS = stringPreferencesKey("trusted_root_ca_pems")
         val GAIN_DB = floatPreferencesKey("gain_db")
+        val AUTO_GAIN_REDUCTION_ENABLED = booleanPreferencesKey("auto_gain_reduction_enabled")
     }
 
     private val caListSerializer = ListSerializer(String.serializer())
@@ -60,7 +61,8 @@ class SettingsRepository(private val context: Context) {
                 runCatching { AudioFocusPolicy.valueOf(it) }.getOrNull()
             } ?: AudioFocusPolicy.PAUSE,
             trustedRootCaPems = decodeCaList(prefs[Keys.TRUSTED_ROOT_CAS]),
-            gainDb = prefs[Keys.GAIN_DB]?.let { GainProcessor.clampGainDb(it) } ?: GainProcessor.DEFAULT_GAIN_DB
+            gainDb = prefs[Keys.GAIN_DB]?.let { GainProcessor.clampGainDb(it) } ?: GainProcessor.DEFAULT_GAIN_DB,
+            autoGainReductionEnabled = prefs[Keys.AUTO_GAIN_REDUCTION_ENABLED] ?: false
         )
     }
 
@@ -116,5 +118,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun updateGainDb(db: Float) {
         context.dataStore.edit { prefs -> prefs[Keys.GAIN_DB] = GainProcessor.clampGainDb(db) }
+    }
+
+    suspend fun updateAutoGainReductionEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs -> prefs[Keys.AUTO_GAIN_REDUCTION_ENABLED] = enabled }
     }
 }

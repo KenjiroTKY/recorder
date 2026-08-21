@@ -135,6 +135,7 @@ class RecordingService : Service(), RecorderListener {
             app.container.settingsRepository.settingsFlow.collect {
                 audioFocusPolicy = it.audioFocusPolicy
                 newRecorder.setGainDb(it.gainDb)
+                newRecorder.setAutoGainReductionEnabled(it.autoGainReductionEnabled)
             }
         }
         newRecorder.start(quality, workDir = cacheWorkDir(), baseFileName = currentBaseName, preferUnprocessed = preferUnprocessed)
@@ -404,6 +405,11 @@ class RecordingService : Service(), RecorderListener {
 
     override fun onError(error: Throwable) {
         _uiState.value = _uiState.value.copy(errorMessage = error.message)
+    }
+
+    override fun onGainAutoReduced(newGainDb: Float) {
+        val app = application as HqRecorderApp
+        serviceScope.launch { app.container.settingsRepository.updateGainDb(newGainDb) }
     }
 
     override fun onDestroy() {

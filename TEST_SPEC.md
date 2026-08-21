@@ -95,6 +95,12 @@
 | 2.8.8 | 設定したゲインが録音ファイルの実際の音量に反映されていること（再生して確認） | 手動 |
 | 2.8.9 | 設定画面で電子証明書ON/OFFを切り替えると、ゲインスライダーの上限表示（+24dB/+40dB）が連動して変わること | 手動 |
 | 2.8.10 | `GainProcessor.maxGainDb(preferUnprocessed)`がtrue時`MAX_GAIN_DB_UNPROCESSED`、false時`MAX_GAIN_DB`を返すこと | ユニット |
+| 2.8.11 | `GainProcessor.autoReduceGainDb`は`clipped=false`時、現在値をそのまま返すこと | ユニット |
+| 2.8.12 | `GainProcessor.autoReduceGainDb`は`clipped=true`時、デフォルトの`AUTO_REDUCTION_STEP_DB`（3dB）だけ値を下げること、および任意の`stepDb`を指定できること | ユニット |
+| 2.8.13 | `GainProcessor.autoReduceGainDb`は`clipped=true`が続いても`MIN_GAIN_DB`（-24dB）でクランプされ、それ以下には下がらないこと | ユニット |
+| 2.8.14 | 設定画面で「クリッピング検出時に自動でゲインを下げる」をONにして録音中にクリッピングを発生させると、ゲインスライダーの値が自動的に下がり、DataStoreにも反映されること（アプリ再起動後も保持） | 手動 |
+| 2.8.15 | 上記トグルがOFFの場合、クリッピングが発生してもゲインは自動では変化しないこと（警告表示のみ） | 手動 |
+| 2.8.16 | 自動でゲインが下がった後も、ユーザーが手動でスライダーを操作してゲインを上げ直せること（自動で元に戻ることはない） | 手動 |
 
 ## 3. 非機能要件テスト（SPEC 4対応）
 

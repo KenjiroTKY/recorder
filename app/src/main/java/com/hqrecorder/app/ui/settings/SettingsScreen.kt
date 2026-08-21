@@ -164,6 +164,25 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel(
                 }
             }
 
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("クリッピング検出時に自動でゲインを下げる", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "音割れを検出するたびにゲインを${GainProcessor.AUTO_REDUCTION_STEP_DB.roundToInt()}dBずつ自動的に引き下げます（下限${GainProcessor.MIN_GAIN_DB.roundToInt()}dB）。上げ直しは手動で行ってください。",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Switch(
+                        checked = settings.autoGainReductionEnabled,
+                        onCheckedChange = { viewModel.setAutoGainReductionEnabled(it) }
+                    )
+                }
+            }
+
             item { Divider(modifier = Modifier.padding(vertical = 16.dp)) }
 
             item { Text("通話・Bluetooth割り込み時の挙動", style = MaterialTheme.typography.titleLarge) }

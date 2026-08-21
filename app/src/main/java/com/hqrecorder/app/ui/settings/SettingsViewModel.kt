@@ -90,4 +90,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setGainDb(db: Float) {
         viewModelScope.launch { repo.updateGainDb(db) }
     }
+
+    fun setAutoGainReductionEnabled(enabled: Boolean) {
+        viewModelScope.launch { repo.updateAutoGainReductionEnabled(enabled) }
+    }
 }
